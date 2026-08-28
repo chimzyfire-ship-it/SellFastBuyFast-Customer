@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shoplancia Admin Operations Portal — Platform Staff Control Center</title>
+  <meta name="description" content="Operations platform administration for merchant approvals, catalogue moderation, payout authorizations, and immutable audit logs.">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand-header">
+        <div class="brand-logo">A</div>
+        <div>
+          <div class="brand-title">Shoplancia</div>
+          <div class="brand-sub">Operations Admin</div>
+        </div>
+      </div>
+
+      <nav class="nav-section">
+        <div class="nav-label">Work Queues</div>
+        <a class="nav-item active" data-view="work-queue">
+          <i data-lucide="list-checks"></i>
+          <span>Operations Queue</span>
+        </a>
+        <a class="nav-item" data-view="merchant-review">
+          <i data-lucide="store"></i>
+          <span>Merchant Verification</span>
+          <span class="nav-badge">1</span>
+        </a>
+        <a class="nav-item" data-view="catalogue-moderation">
+          <i data-lucide="shield-alert"></i>
+          <span>Catalogue Moderation</span>
+          <span class="nav-badge">2</span>
+        </a>
+
+        <div class="nav-label">Exceptions & Care</div>
+        <a class="nav-item" data-view="order-exceptions">
+          <i data-lucide="truck"></i>
+          <span>Order Exceptions</span>
+        </a>
+        <a class="nav-item" data-view="disputes-returns">
+          <i data-lucide="alert-triangle"></i>
+          <span>Returns & Disputes</span>
+        </a>
+
+        <div class="nav-label">Finance & Audit</div>
+        <a class="nav-item" data-view="payout-review">
+          <i data-lucide="badge-check"></i>
+          <span>Payout Approval</span>
+          <span class="nav-badge" style="background-color: var(--gold-dark);">1</span>
+        </a>
+        <a class="nav-item" data-view="reconciliation">
+          <i data-lucide="scale"></i>
+          <span>Reconciliation</span>
+        </a>
+        <a class="nav-item" data-view="audit-logs">
+          <i data-lucide="file-text"></i>
+          <span>Immutable Audit Logs</span>
+        </a>
+      </nav>
+
+      <div class="staff-footer">
+        <div class="staff-avatar">AO</div>
+        <div>
+          <div style="font-size: 13px; font-weight: 700; color: #FFF;">Ayo Ogundipe</div>
+          <div style="font-size: 11px; color: var(--gold-light);">Lead Operations Admin</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-wrapper">
+      <header class="top-bar">
+        <h1 class="page-title" id="page-heading">Operations Work Queue</h1>
+        <div style="display: flex; gap: 12px;">
+          <span class="status-pill status-approved" style="padding: 6px 14px;">
+            <i data-lucide="lock" style="width: 12px; height: 12px;"></i> Security Role: Ops Reviewer (MFA Active)
+          </span>
+        </div>
+      </header>
+
+      <div class="page-body">
+        
+        <!-- VIEW 1: WORK QUEUE -->
+        <section id="view-work-queue" class="view-section active">
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-header">Pending Merchant KYC Reviews</div>
+              <div class="metric-value">1</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">Requires CAC & NUBAN verification</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-header">Unmoderated Products</div>
+              <div class="metric-value">2</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">Image & copy safety inspection</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-header">Payout Authorization Requests</div>
+              <div class="metric-value">₦ 1,450,000</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">Dual-control authorization required</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-header">Open Customer Disputes</div>
+              <div class="metric-value">0</div>
+              <div style="font-size: 12px; color: var(--success-green); font-weight: 700;">100% Resolved</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 2: MERCHANT VERIFICATION -->
+        <section id="view-merchant-review" class="view-section">
+          <div class="card-table-container">
+            <div class="table-header-bar">
+              <h2 class="table-title">Merchant Verification Queue (KYC & CAC)</h2>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Merchant Name</th>
+                  <th>RC Number</th>
+                  <th>Paystack NUBAN</th>
+                  <th>Submitted Date</th>
+                  <th>Status</th>
+                  <th>Operations Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Luxe Footwear NG</strong></td>
+                  <td>RC-1889240</td>
+                  <td>Zenith Bank — 20987654321</td>
+                  <td>11 Aug 2026</td>
+                  <td><span class="status-pill status-pending">Pending Review</span></td>
+                  <td>
+                    <div style="display: flex; gap: 6px;">
+                      <button class="btn btn-approve" onclick="openActionModal('Approve Merchant', 'Luxe Footwear NG', 'merchant-approve')">Approve</button>
+                      <button class="btn btn-reject" onclick="openActionModal('Reject Merchant', 'Luxe Footwear NG', 'merchant-reject')">Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- VIEW 3: CATALOGUE MODERATION -->
+        <section id="view-catalogue-moderation" class="view-section">
+          <div class="card-table-container">
+            <div class="table-header-bar">
+              <h2 class="table-title">Catalogue Product Submission Queue</h2>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Submitted Item</th>
+                  <th>Merchant Owner</th>
+                  <th>Category</th>
+                  <th>Price NGN</th>
+                  <th>Moderation State</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Minimalist White Leather Sneakers</strong></td>
+                  <td>Luxe Footwear NG</td>
+                  <td>Fashion</td>
+                  <td>₦ 35,000</td>
+                  <td><span class="status-pill status-pending">Awaiting Scan</span></td>
+                  <td>
+                    <div style="display: flex; gap: 6px;">
+                      <button class="btn btn-approve" onclick="openActionModal('Approve Product', 'Minimalist White Leather Sneakers', 'prod-approve')">Approve</button>
+                      <button class="btn btn-reject" onclick="openActionModal('Reject Product', 'Minimalist White Leather Sneakers', 'prod-reject')">Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- VIEW 4: ORDER EXCEPTIONS -->
+        <section id="view-order-exceptions" class="view-section">
+          <div class="card-table-container">
+            <div class="table-header-bar">
+              <h2 class="table-title">Order Exceptions & Logistics Monitor</h2>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Order Ref</th>
+                  <th>Merchant</th>
+                  <th>Logistics Carrier</th>
+                  <th>Waybill</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>ORD-2026-8891</strong></td>
+                  <td>Shoplancia Tech</td>
+                  <td>GIG Logistics</td>
+                  <td>SL-NG-99824</td>
+                  <td><span class="status-pill status-approved">Shipped On Schedule</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- VIEW 5: DISPUTES & RETURNS -->
+        <section id="view-disputes-returns" class="view-section">
+          <div class="card-table-container">
+            <div class="table-header-bar">
+              <h2 class="table-title">Return Cases & Customer Disputes</h2>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Case Ref</th>
+                  <th>Order Ref</th>
+                  <th>Buyer</th>
+                  <th>Reason</th>
+                  <th>Outcome Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>RET-8812</strong></td>
+                  <td>ORD-2026-7740</td>
+                  <td>Amina Bello</td>
+                  <td>Damaged or defective item</td>
+                  <td><span class="status-pill status-approved">Approved & Refunded</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- VIEW 6: PAYOUT APPROVAL -->
+        <section id="view-payout-review" class="view-section">
+          <div class="card-table-container">
+            <div class="table-header-bar">
+              <h2 class="table-title">Finance Payout Authorization Queue (Dual Control)</h2>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Payout ID</th>
+                  <th>Merchant Owner</th>
+                  <th>Requested Amount</th>
+                  <th>NUBAN Destination</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>PO-2026-0091</strong></td>
+                  <td>Shoplancia Tech</td>
+                  <td><strong>₦ 1,450,000</strong></td>
+                  <td>GTBank — 0123456789</td>
+                  <td>
+                    <div style="display: flex; gap: 6px;">
+                      <button class="btn btn-approve" onclick="openActionModal('Authorize Payout Transfer', 'Shoplancia Tech (₦ 1,450,000)', 'payout-approve')">Authorize Payout</button>
+                      <button class="btn btn-reject" onclick="openActionModal('Hold Payout Request', 'Shoplancia Tech', 'payout-hold')">Hold</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- VIEW 7: RECONCILIATION -->
+        <section id="view-reconciliation" class="view-section">
+          <div class="card-table-container">
+            <div class="table-header-bar">
+              <h2 class="table-title">Paystack Ledger Reconciliation</h2>
+            </div>
+            <div style="padding: 24px; text-align: center;">
+              <i data-lucide="scale" style="width: 44px; height: 44px; color: var(--success-green); margin-bottom: 10px;"></i>
+              <h3 style="font-size: 16px; font-weight: 700; color: var(--ops-dark);">All Paystack Webhooks & Ledger Balances Matched</h3>
+              <p style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">Zero un-reconciled discrepancies in last 24-hour settlement window.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 8: AUDIT LOGS -->
+        <section id="view-audit-logs" class="view-section">
+          <div class="card-table-container">
+            <div class="table-header-bar">
+              <h2 class="table-title">Immutable System Audit Log Trail</h2>
+              <input type="text" class="search-input" placeholder="Search audit logs..." onkeyup="filterAudit(this.value)">
+            </div>
+            <table class="data-table" id="audit-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Operator</th>
+                  <th>Role</th>
+                  <th>Action Executed</th>
+                  <th>Audit Reason Record</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>11 Aug 2026, 12:45 PM</td>
+                  <td>Ayo Ogundipe</td>
+                  <td>Ops Admin</td>
+                  <td>MERCHANT_VERIFY_APPROVE</td>
+                  <td>Verified CAC document RC-1988241 and NUBAN name match.</td>
+                </tr>
+                <tr>
+                  <td>10 Aug 2026, 09:30 AM</td>
+                  <td>Chidi (Finance)</td>
+                  <td>Finance Reviewer</td>
+                  <td>PAYOUT_RELEASE_AUTHORIZE</td>
+                  <td>Approved payout PO-2026-0088 for ₦ 89,500.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Mandatory Audit Action Modal -->
+  <div class="modal-backdrop" id="action-modal">
+    <div class="modal-card">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <h3 id="modal-action-title" style="font-size: 18px; font-weight: 700; color: var(--ops-dark);">Audit Action</h3>
+        <button onclick="closeActionModal()" style="background: none; border: none; font-size: 20px; cursor: pointer;">&times;</button>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 13px; color: var(--text-secondary);">Target Subject:</div>
+        <strong id="modal-target-name" style="font-size: 15px; color: var(--ops-dark);">—</strong>
+      </div>
+
+      <form onsubmit="handleAuditSubmit(event)">
+        <div style="margin-bottom: 20px;">
+          <label style="font-size: 12.5px; font-weight: 700; color: var(--ops-dark); display: block; margin-bottom: 6px;">
+            Mandatory Audit Reason Code & Evidence Note:
+          </label>
+          <textarea class="form-control" id="audit-reason-input" style="width: 100%; height: 90px; padding: 10px; border-radius: 8px; border: 1px solid var(--border);" placeholder="Enter mandatory audit justification..." required></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-approve" style="width: 100%; height: 46px; justify-content: center; border-radius: var(--radius-pill);">
+          Confirm & Write Immutable Audit Event
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
