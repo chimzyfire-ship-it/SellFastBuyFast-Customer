@@ -15,9 +15,17 @@
 | 2026-08-09 | Created the founder IA diagram and screen-routing specification, including actor boundaries, target route hierarchy, guards, cross-surface handoffs, journey diagrams, and current-versus-target implementation status. | Complete |
 | 2026-08-09 | Created the initial legacy-branded PDF editions and completed render-based visual verification. | Superseded |
 | 2026-08-22 | Rebranded maintained documentation to SellFastBuyFast, refreshed implementation status, strengthened financial/security controls, and prepared a new professionally named PDF set. | Complete |
+| 2026-08-28 | Documented backend/database/infra strategy (Supabase PostgreSQL + Railway modular backend), synced Customer codebase to GitHub, and renamed ecosystem repos to SellFastBuyFast-Customer, SellFastBuyFast-Admin, and SellFastBuyFast-Vendor. | Complete |
+
+## Official Repositories
+
+- **Customer App:** [`chimzyfire-ship-it/SellFastBuyFast-Customer`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Customer)
+- **Admin Portal:** [`chimzyfire-ship-it/SellFastBuyFast-Admin`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Admin)
+- **Vendor Portal:** [`chimzyfire-ship-it/SellFastBuyFast-Vendor`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Vendor)
 
 ## Deliverables
 
+- `docs/architecture/backend-database-and-infrastructure-strategy.md` — backend architecture, $0 cost modeling, and Ethnikraft adaptation.
 - `docs/architecture/information-architecture.md` — v1 information architecture, actor boundaries, and system/ownership map.
 - `docs/product/screen-routing.md` — route inventory, entry/exit rules, and primary journey flows.
 

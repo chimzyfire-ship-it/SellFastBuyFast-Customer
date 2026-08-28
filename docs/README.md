@@ -4,6 +4,14 @@ This folder is the implementation source of truth for the SellFastBuyFast target
 
 **Document status:** Draft target architecture, version 0.9, issued 22 August 2026. Open commercial, legal, finance, privacy, and operational decisions remain launch blockers until approved by their accountable owners.
 
+## Official Repositories
+
+| Surface | GitHub Repository | Description |
+| :--- | :--- | :--- |
+| **Customer App** | [`chimzyfire-ship-it/SellFastBuyFast-Customer`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Customer) | Expo React Native shopper mobile application and architecture source. |
+| **Admin Portal** | [`chimzyfire-ship-it/SellFastBuyFast-Admin`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Admin) | Next.js back-office, KYC approval, dispute, and operations control center. |
+| **Vendor Portal** | [`chimzyfire-ship-it/SellFastBuyFast-Vendor`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Vendor) | Next.js merchant portal for catalogue, inventory, orders, and settlements. |
+
 ## Read in this order
 
 1. [Product scope](product/v1-scope.md) - what v1 does, does not do, and the business decisions required before build.

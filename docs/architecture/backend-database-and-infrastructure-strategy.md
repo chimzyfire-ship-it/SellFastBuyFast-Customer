@@ -13,6 +13,14 @@ SellFastBuyFast is a curated multi-vendor marketplace operating with strict tran
 
 This document defines the definitive backend and data strategy: **Supabase (PostgreSQL, Auth, Storage)** as the data and identity foundation, paired with a **Modular Core API & Queue Worker (hosted locally in dev, on Railway in deployment)** for business execution, financial state machines, and Paystack payment processing.
 
+### Repository Ecosystem
+
+| Surface | GitHub Repository | Focus |
+| :--- | :--- | :--- |
+| **Customer App** | [`chimzyfire-ship-it/SellFastBuyFast-Customer`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Customer) | Expo shopper mobile app, local state, checkout flows |
+| **Admin Portal** | [`chimzyfire-ship-it/SellFastBuyFast-Admin`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Admin) | Back-office management, KYC review, dispute arbitration |
+| **Vendor Portal** | [`chimzyfire-ship-it/SellFastBuyFast-Vendor`](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Vendor) | Merchant onboarding, product catalogue, inventory, orders |
+
 ### Technology Selection Matrix
 
 | Layer | Selected Technology | Role & Justification | Alternatives Evaluated & Rejected |
