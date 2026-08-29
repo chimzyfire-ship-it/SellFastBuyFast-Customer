@@ -1,9 +1,16 @@
-import React, { createContext, useContext, useState } from 'react';
-import { PRODUCTS } from '../data/mockData';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { PRODUCTS, CATEGORIES } from '../data/mockData';
+import { supabase } from '../lib/supabase';
+import { fetchLiveCategories, fetchLiveProducts } from '../services/catalogService';
 
 const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
+  // Live Catalogue State
+  const [liveCategories, setLiveCategories] = useState(CATEGORIES);
+  const [liveProducts, setLiveProducts] = useState(PRODUCTS);
+  const [isLoadingCatalogue, setIsLoadingCatalogue] = useState(false);
+
   // Authentication State
   const [user, setUser] = useState({
     id: 'usr_101',
@@ -15,6 +22,7 @@ export const AppProvider = ({ children }) => {
     verified: true,
   });
   const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [authLoading, setAuthLoading] = useState(false);
 
   // Intent preservation for Auth redirect
   const [intendedRoute, setIntendedRoute] = useState(null);
@@ -166,36 +174,171 @@ export const AppProvider = ({ children }) => {
     }, 2500);
   };
 
-  // Auth Methods
-  const signIn = (emailOrPhone, password) => {
-    setIsAuthenticated(true);
-    setUser({
-      id: 'usr_101',
-      name: 'Amina Bello',
-      email: emailOrPhone,
-      phone: '+234 803 123 4567',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-      memberSince: 'August 2024',
-      verified: true,
+  // Load Catalogue on Mount
+  const loadCatalogueData = useCallback(async () => {
+    setIsLoadingCatalogue(true);
+    try {
+      const [cats, prods] = await Promise.all([
+        fetchLiveCategories(),
+        fetchLiveProducts('all'),
+      ]);
+      if (cats && cats.length > 0) setLiveCategories(cats);
+      if (prods && prods.length > 0) setLiveProducts(prods);
+    } catch {
+      // Graceful fallback to mock data
+    } finally {
+      setIsLoadingCatalogue(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCatalogueData();
+
+    // Check for existing Supabase Auth Session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Member',
+          email: session.user.email,
+          phone: session.user.phone || '+234 803 123 4567',
+          avatar: session.user.user_metadata?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+          memberSince: new Date(session.user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          verified: true,
+        });
+        setIsAuthenticated(true);
+      }
     });
-    showToast('Signed in successfully');
+
+    // Listen for Auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Member',
+          email: session.user.email,
+          phone: session.user.phone || '+234 803 123 4567',
+          avatar: session.user.user_metadata?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+          memberSince: new Date(session.user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          verified: true,
+        });
+        setIsAuthenticated(true);
+      }
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, [loadCatalogueData]);
+
+  // Auth Methods (Supabase Powered with Local Fallback)
+  const signIn = async (emailOrPhone, password) => {
+    setAuthLoading(true);
+    try {
+      if (emailOrPhone.includes('@')) {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: emailOrPhone,
+          password: password,
+        });
+
+        if (error) throw error;
+
+        if (data?.user) {
+          setUser({
+            id: data.user.id,
+            name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Member',
+            email: data.user.email,
+            phone: data.user.phone || '+234 803 123 4567',
+            avatar: data.user.user_metadata?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+            memberSince: new Date(data.user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+            verified: true,
+          });
+          setIsAuthenticated(true);
+          showToast('Signed in successfully');
+          return { success: true };
+        }
+      } else {
+        // Phone / Mock path
+        setIsAuthenticated(true);
+        setUser({
+          id: 'usr_101',
+          name: 'Amina Bello',
+          email: emailOrPhone,
+          phone: '+234 803 123 4567',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+          memberSince: 'August 2024',
+          verified: true,
+        });
+        showToast('Signed in successfully');
+        return { success: true };
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to sign in');
+      return { success: false, error: err.message };
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
-  const signUp = (name, email, phone) => {
-    setIsAuthenticated(true);
-    setUser({
-      id: 'usr_' + Date.now(),
-      name,
-      email,
-      phone,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-      memberSince: 'August 2026',
-      verified: true,
-    });
-    showToast('Account created successfully');
+  const signUp = async (name, email, phone, password = 'Password123!') => {
+    setAuthLoading(true);
+    try {
+      if (email.includes('@')) {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: name,
+              phone: phone,
+            },
+          },
+        });
+
+        if (error) throw error;
+
+        if (data?.user) {
+          setUser({
+            id: data.user.id,
+            name: name,
+            email: email,
+            phone: phone,
+            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+            memberSince: 'August 2026',
+            verified: true,
+          });
+          setIsAuthenticated(true);
+          showToast('Account created successfully');
+          return { success: true };
+        }
+      } else {
+        setIsAuthenticated(true);
+        setUser({
+          id: 'usr_' + Date.now(),
+          name,
+          email,
+          phone,
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+          memberSince: 'August 2026',
+          verified: true,
+        });
+        showToast('Account created successfully');
+        return { success: true };
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to create account');
+      return { success: false, error: err.message };
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
-  const signOut = () => {
+  const signOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // ignore
+    }
     setIsAuthenticated(false);
     showToast('Signed out of account');
   };
@@ -432,9 +575,14 @@ export const AppProvider = ({ children }) => {
       value={{
         user,
         isAuthenticated,
+        authLoading,
         signIn,
         signUp,
         signOut,
+        liveCategories,
+        liveProducts,
+        isLoadingCatalogue,
+        loadCatalogueData,
         intendedRoute,
         setIntendedRoute,
         cart,

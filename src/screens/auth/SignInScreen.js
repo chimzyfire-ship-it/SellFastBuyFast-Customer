@@ -39,22 +39,24 @@ export default function SignInScreen() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSignIn = () => {
+  const handleSignIn = async () => {
     if (!validateForm()) return;
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      signIn(email, password);
-      showToast('Welcome back to SellFastBuyFast!');
-      if (intendedRoute) {
-        const target = intendedRoute;
-        setIntendedRoute(null);
-        reset(target.name, target.params);
-      } else {
-        reset('home');
+    try {
+      const res = await signIn(email, password);
+      if (res?.success !== false) {
+        if (intendedRoute) {
+          const target = intendedRoute;
+          setIntendedRoute(null);
+          reset(target.name, target.params);
+        } else {
+          reset('home');
+        }
       }
-    }, 500);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSocialSignIn = (provider) => {

@@ -1,4 +1,9 @@
-/* Shoplancia Admin Operations Portal Client Engine */
+/* SellFastBuyFast Admin Operations Portal Client Engine & Live Supabase Integration */
+
+const SUPABASE_URL = 'https://fuqrhfxptybipxbzveyy.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1cXJoZnhwdHliaXB4Ynp2ZXl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY3MjYsImV4cCI6MjEwMzUyMjcyNn0.Q240FBpikqiWaGytkVP1RWVHGA-ZpvdVicY9qf4pvWw';
+
+const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 const VIEW_TITLES = {
   'work-queue': 'Operations Work Queue',
@@ -47,7 +52,34 @@ document.addEventListener('DOMContentLoaded', () => {
       if (targetView) switchView(targetView);
     });
   });
+
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+
+  loadLiveMerchants();
 });
+
+// Load Live Merchants from Supabase
+async function loadLiveMerchants() {
+  if (!supabaseClient) return;
+
+  try {
+    const { data: merchants, error } = await supabaseClient
+      .from('merchants')
+      .select('*');
+
+    if (error || !merchants) return;
+
+    const countBadge = document.querySelector('.nav-item[data-view="merchant-review"] .nav-badge');
+    if (countBadge) {
+      const pendingCount = merchants.filter(m => m.status === 'pending_verification').length;
+      countBadge.textContent = String(pendingCount);
+    }
+  } catch (err) {
+    console.warn('Could not load live merchants:', err);
+  }
+}
 
 function openActionModal(actionTitle, targetName, actionType) {
   activeActionType = actionType;
@@ -76,10 +108,10 @@ function handleAuditSubmit(e) {
     const now = new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     newRow.innerHTML = `
       <td>${now}</td>
-      <td>Ayo Ogundipe</td>
+      <td>Operations Admin</td>
       <td>Ops Admin</td>
-      <td>${activeActionType.toUpperCase()}</td>
-      <td>${reason}</td>
+      <td><span class="badge badge-success">${escapeHtml(activeActionType.toUpperCase())}</span></td>
+      <td>${escapeHtml(reason)}</td>
     `;
   }
 }
@@ -98,4 +130,10 @@ function filterAudit(query) {
       rows[i].style.display = 'none';
     }
   }
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[m]);
 }

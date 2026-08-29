@@ -9,10 +9,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../theme/colors';
+import { useApp } from '../../context/AppContext';
 import { useNavigation } from '../../navigation/NavigationContext';
 import AuthLayout from '../../components/auth/AuthLayout';
 
 export default function SignUpScreen() {
+  const { signUp, showToast } = useApp();
   const { navigate } = useNavigation();
 
   const [name, setName] = useState('');
@@ -72,14 +74,18 @@ export default function SignUpScreen() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!validateForm()) return;
     setIsLoading(true);
 
-    setTimeout(() => {
+    try {
+      const res = await signUp(name, email, phone, password);
+      if (res?.success !== false) {
+        navigate('auth-verify', { email, phone, name });
+      }
+    } finally {
       setIsLoading(false);
-      navigate('auth-verify', { email, phone, name });
-    }, 400);
+    }
   };
 
   return (

@@ -25,33 +25,38 @@ const { width } = Dimensions.get('window');
 const HORIZONTAL_CARD_WIDTH = Math.floor((width - 40 - 20) / 2.3);
 
 export default function HomeScreen() {
-  const { wishlist, toggleWishlist, showToast } = useApp();
+  const { 
+    wishlist, 
+    toggleWishlist, 
+    showToast, 
+    liveProducts, 
+    liveCategories, 
+    isLoadingCatalogue, 
+    loadCatalogueData 
+  } = useApp();
   const { navigate, openModal } = useNavigation();
 
   const [activeCategory, setActiveCategory] = useState('all');
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    setTimeout(() => {
+    try {
+      await loadCatalogueData();
+      showToast('Catalogue refreshed from Supabase');
+    } catch {
+      showToast('Offline fallback active');
+    } finally {
       setRefreshing(false);
-      showToast('Catalogue refreshed');
-    }, 800);
+    }
   };
 
   const handleSelectProduct = (product) => {
     navigate('product-detail', { productId: product.id, product });
   };
 
-  const filteredProducts = PRODUCTS.filter((p) =>
+  const productsToDisplay = liveProducts && liveProducts.length > 0 ? liveProducts : PRODUCTS;
+  const filteredProducts = productsToDisplay.filter((p) =>
     activeCategory === 'all' ? true : p.category === activeCategory
   );
 
@@ -87,12 +92,12 @@ export default function HomeScreen() {
       </TouchableOpacity>
 
       {/* 2. Warm Luxury Hero Banner */}
-      {loading ? (
+      {isLoadingCatalogue ? (
         <HeroSkeleton />
       ) : (
         <HeroCarousel
           onCtaPress={() => {
-            const featured = PRODUCTS[3] || PRODUCTS[0];
+            const featured = productsToDisplay[0] || PRODUCTS[0];
             navigate('product-detail', { productId: featured.id, product: featured });
           }}
         />
@@ -100,6 +105,7 @@ export default function HomeScreen() {
 
       {/* 3. Category Segmented Card Dock */}
       <CategoryNav
+        categories={liveCategories}
         activeCategoryId={activeCategory}
         onSelectCategory={(id) => {
           if (id === 'more') {
@@ -119,7 +125,7 @@ export default function HomeScreen() {
           <Text style={styles.sectionTitle}>
             {activeCategory === 'all'
               ? 'Top Picks For You'
-              : `${CATEGORIES.find((c) => c.id === activeCategory)?.name || activeCategory} Collection`}
+              : `${liveCategories.find((c) => c.id === activeCategory)?.name || activeCategory} Collection`}
           </Text>
           <Text style={styles.sectionSub}>Handpicked quality, just for you</Text>
         </View>
