@@ -1,0 +1,99 @@
+import { Router, Request, Response } from 'express';
+import { db } from '../../db/client.js';
+import { categories, products, productVariants, productMedia, merchants } from '../../db/schema.js';
+import { eq, and } from 'drizzle-orm';
+
+export const catalogRouter = Router();
+
+// GET /v1/catalog/categories
+catalogRouter.get('/categories', async (_req: Request, res: Response) => {
+  try {
+    const list = await db
+      .select()
+      .from(categories)
+      .where(eq(categories.isActive, true))
+      .orderBy(categories.sortOrder);
+
+    res.json({ success: true, data: list });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'CATALOG_ERROR', message: err.message } });
+  }
+});
+
+// GET /v1/catalog/products
+catalogRouter.get('/products', async (req: Request, res: Response) => {
+  try {
+    const { categoryId, featured } = req.query;
+
+    const conditions = [eq(products.status, 'published')];
+    if (categoryId && typeof categoryId === 'string') {
+      conditions.push(eq(products.categoryId, categoryId));
+    }
+    if (featured === 'true') {
+      conditions.push(eq(products.isFeatured, true));
+    }
+
+    const productList = await db
+      .select({
+        id: products.id,
+        title: products.title,
+        slug: products.slug,
+        description: products.description,
+        basePriceMinor: products.basePriceMinor,
+        comparePriceMinor: products.comparePriceMinor,
+        currency: products.currency,
+        isFeatured: products.isFeatured,
+        merchantId: products.merchantId,
+        merchantName: merchants.businessName,
+        categoryName: categories.name,
+      })
+      .from(products)
+      .leftJoin(merchants, eq(products.merchantId, merchants.id))
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(and(...conditions));
+
+    res.json({ success: true, data: productList });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'CATALOG_ERROR', message: err.message } });
+  }
+});
+
+// GET /v1/catalog/products/:id
+catalogRouter.get('/products/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const [product] = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.id, id), eq(products.status, 'published')))
+      .limit(1);
+
+    if (!product) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Product not found.' } });
+      return;
+    }
+
+    const variants = await db
+      .select()
+      .from(productVariants)
+      .where(eq(productVariants.productId, id));
+
+    const media = await db
+      .select()
+      .from(productMedia)
+      .where(eq(productMedia.productId, id))
+      .orderBy(productMedia.sortOrder);
+
+    res.json({
+      success: true,
+      data: {
+        ...product,
+        variants,
+        media,
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'CATALOG_ERROR', message: err.message } });
+  }
+});
