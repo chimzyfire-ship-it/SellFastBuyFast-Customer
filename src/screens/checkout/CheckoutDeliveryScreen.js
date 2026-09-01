@@ -104,7 +104,7 @@ export default function CheckoutDeliveryScreen() {
           </View>
 
           <Text style={styles.methodDesc}>
-            Includes real-time courier SMS updates, signature confirmation, and Paystack escrow protection.
+            Includes courier status updates when available and delivery evidence collection.
           </Text>
         </TouchableOpacity>
 
@@ -139,12 +139,12 @@ export default function CheckoutDeliveryScreen() {
           <View style={styles.deliveryMetaRow}>
             <View style={[styles.etaBadge, styles.etaBadgeExpress]}>
               <Ionicons name="flash-outline" size={13} color="#C69B56" />
-              <Text style={[styles.etaText, styles.etaTextExpress]}>Estimated: Tomorrow (Next Day Guarantee)</Text>
+              <Text style={[styles.etaText, styles.etaTextExpress]}>Estimated: next business day</Text>
             </View>
           </View>
 
           <Text style={styles.methodDesc}>
-            Dedicated priority dispatcher handling with guaranteed same-day merchant warehouse dispatch.
+            Priority handling where the merchant and carrier can support it.
           </Text>
         </TouchableOpacity>
       </ScrollView>

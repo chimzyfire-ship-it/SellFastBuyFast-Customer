@@ -141,7 +141,7 @@ export default function CheckoutReviewScreen() {
               </Text>
               <Text style={styles.subDetailText}>
                 {selectedDeliveryMethod === 'express'
-                  ? 'Next-day guarantee • ₦ 7,500'
+                  ? 'Estimated next business day • ₦ 7,500'
                   : '2-3 business days • ₦ 4,500'}
               </Text>
             </View>

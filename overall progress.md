@@ -16,6 +16,7 @@
 | 2026-08-09 | Created the initial legacy-branded PDF editions and completed render-based visual verification. | Superseded |
 | 2026-08-22 | Rebranded maintained documentation to SellFastBuyFast, refreshed implementation status, strengthened financial/security controls, and prepared a new professionally named PDF set. | Complete |
 | 2026-08-28 | Documented backend/database/infra strategy (Supabase PostgreSQL + Railway modular backend), synced Customer codebase to GitHub, and renamed ecosystem repos to SellFastBuyFast-Customer, SellFastBuyFast-Admin, and SellFastBuyFast-Vendor. | Complete |
+| 2026-09-01 | Added Core API transactional checkout, Paystack initialization/verification/webhooks, inventory reservation expiry, role checks, ledger-backed payouts, fulfilment transitions, migrations, and Expo hosted-checkout integration. | Complete |
 
 ## Official Repositories
 
@@ -34,9 +35,9 @@
 - V1 is a curated Nigeria-first marketplace.
 - Checkout is limited to a single merchant and Paystack.
 - Financial state changes are server-controlled and ledger-backed.
-- The shopper app and static merchant/operations portal prototypes are represented in the codebase; the transactional platform remains draft target architecture.
+- The shopper app and static merchant/operations portal prototypes are represented in the codebase. The Core API now implements the primary transactional path; production merchant/operations portal delivery remains separate.
 
 ## Completion check
 
 - Verified the documents are present, linked to one another, and include Mermaid diagrams plus route tables.
-- Documentation-source and document-build files were changed; application runtime behavior was not changed.
+- Documentation and runtime behavior were changed. API unit tests, TypeScript compilation, and Expo web export pass locally.

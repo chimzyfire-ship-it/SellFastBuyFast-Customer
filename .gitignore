@@ -18,6 +18,7 @@ __pycache__/
 .env*.local
 .env.production
 .env.staging
+supabase/.temp/
 
 # OS files
 .DS_Store

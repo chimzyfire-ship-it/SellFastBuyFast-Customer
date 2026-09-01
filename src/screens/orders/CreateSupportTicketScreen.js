@@ -27,7 +27,7 @@ export default function CreateSupportTicketScreen() {
 
   const CATEGORIES = [
     'Delivery issue',
-    'Payment & Escrow',
+    'Payment issue',
     'Merchant inquiry',
     'Packaging / Quality',
     'Other questions',

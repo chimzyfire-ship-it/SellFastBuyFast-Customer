@@ -60,7 +60,7 @@ export default function OrderTrackingScreen() {
   });
 
   const STEPS = [
-    { title: 'Order Confirmed', sub: 'Paystack escrow payment authorized', done: true, time: '8 Aug, 02:30 PM', active: false },
+    { title: 'Order Confirmed', sub: 'Paystack payment verified', done: true, time: '8 Aug, 02:30 PM', active: false },
     { title: 'Merchant Accepted', sub: `${order.merchantName || 'SellFast Tech'} packed package`, done: true, time: '8 Aug, 04:15 PM', active: false },
     { title: 'Handed to Carrier', sub: `${order.carrierName || 'GIG Logistics'} waybill allocated`, done: true, time: '9 Aug, 10:00 AM', active: false },
     { title: 'In Transit to Hub', sub: 'Arrival at Lagos VI Distribution Facility', done: true, time: 'In Transit Now', active: true },

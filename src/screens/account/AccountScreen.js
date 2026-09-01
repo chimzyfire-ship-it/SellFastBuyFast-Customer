@@ -38,7 +38,7 @@ export default function AccountScreen() {
   const handleBuyerProtection = () => {
     Alert.alert(
       'SellFast Buyer Protection',
-      '• 100% Merchant Verification (RC & CAC verified)\n• Automated Paystack Escrow Payment Hold\n• Doorstep Inspection & 48-Hour Return Window',
+      '• Merchant review and catalogue moderation\n• Paystack-hosted payment processing\n• Delivery and return handling under the marketplace policy',
       [{ text: 'Understood' }]
     );
   };
@@ -85,7 +85,7 @@ export default function AccountScreen() {
               <Text style={styles.memberTierText}>GOLD CONCIERGE MEMBER</Text>
             </View>
             <Text style={styles.memberPerksText}>
-              1,450 Escrow Points • Free Express DHL Delivery
+              1,450 Member Points • Delivery options shown at checkout
             </Text>
           </View>
         </View>
@@ -136,8 +136,8 @@ export default function AccountScreen() {
                 <Ionicons name="return-up-back-outline" size={19} color="#0F382C" />
               </View>
               <View style={styles.menuTextWrap}>
-                <Text style={styles.menuTitle}>Returns & Escrow Refunds</Text>
-                <Text style={styles.menuSub}>Track returns & payout settlements</Text>
+                <Text style={styles.menuTitle}>Returns & Refunds</Text>
+                <Text style={styles.menuSub}>Track return requests and refund updates</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#7E827A" />
             </TouchableOpacity>
@@ -251,7 +251,7 @@ export default function AccountScreen() {
             <View style={styles.conciergeTextCol}>
               <Text style={styles.conciergeTitle}>24/7 Priority VIP Concierge</Text>
               <Text style={styles.conciergeSub}>
-                Dedicated personal shopper assistance for escrow holds & merchant orders.
+                Dedicated assistance for payment, delivery, and merchant-order questions.
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
@@ -268,7 +268,7 @@ export default function AccountScreen() {
               </View>
               <View style={styles.menuTextWrap}>
                 <Text style={styles.menuTitle}>SellFast Buyer Protection Policy</Text>
-                <Text style={styles.menuSub}>100% verified authenticity & escrow guarantee</Text>
+                <Text style={styles.menuSub}>See how payments, delivery, and returns are handled</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#7E827A" />
             </TouchableOpacity>

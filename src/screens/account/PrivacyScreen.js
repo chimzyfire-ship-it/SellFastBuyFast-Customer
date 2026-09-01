@@ -37,7 +37,7 @@ export default function PrivacyScreen() {
   const handleRequestDeletion = () => {
     Alert.alert(
       'Request Permanent Account Deletion',
-      'This initiates a multi-day data erasure review under NDPR regulations. All transaction records and escrow holds will be finalized.',
+      'This initiates a data-erasure review under applicable privacy requirements. Records we must retain for legal, accounting, or transaction purposes will be handled separately.',
       [
         {
           text: 'Proceed with Deletion',
