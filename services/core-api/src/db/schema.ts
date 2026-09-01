@@ -7,7 +7,8 @@ import {
   boolean, 
   bigint, 
   integer, 
-  jsonb 
+  jsonb,
+  uniqueIndex
 } from 'drizzle-orm/pg-core';
 
 // Enums
@@ -77,6 +78,7 @@ export const journalDirectionEnum = pgEnum('journal_direction_type', [
 export const payoutStatusEnum = pgEnum('payout_status_type', [
   'pending_approval',
   'approved',
+  'rejected',
   'processing',
   'successful',
   'failed',
@@ -87,6 +89,51 @@ export const reservationStatusEnum = pgEnum('reservation_status_type', [
   'active',
   'committed',
   'released'
+]);
+
+export const shipmentStatusEnum = pgEnum('shipment_status_type', [
+  'pending',
+  'packed',
+  'in_transit',
+  'delivered',
+  'return_in_transit'
+]);
+
+export const returnStatusEnum = pgEnum('return_status_type', [
+  'requested',
+  'approved',
+  'rejected',
+  'received',
+  'refund_initiated',
+  'completed'
+]);
+
+export const disputeStatusEnum = pgEnum('dispute_status_type', [
+  'open',
+  'under_review',
+  'resolved_buyer',
+  'resolved_merchant',
+  'closed'
+]);
+
+export const ticketStatusEnum = pgEnum('ticket_status_type', [
+  'open',
+  'pending',
+  'resolved',
+  'closed'
+]);
+
+export const refundStatusEnum = pgEnum('refund_status_type', [
+  'initialized',
+  'successful',
+  'failed'
+]);
+
+export const outboxStatusEnum = pgEnum('outbox_status_type', [
+  'pending',
+  'processing',
+  'processed',
+  'failed'
 ]);
 
 // 1. Identity & Profiles
@@ -246,7 +293,7 @@ export const inventoryLevels = pgTable('inventory_levels', {
 
 export const inventoryReservations = pgTable('inventory_reservations', {
   id: uuid('id').primaryKey().defaultRandom(),
-  orderId: uuid('order_id').notNull(),
+  orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
   variantId: uuid('variant_id').references(() => productVariants.id, { onDelete: 'cascade' }).notNull(),
   quantity: integer('quantity').notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -375,6 +422,7 @@ export const payouts = pgTable('payouts', {
   currency: text('currency').default('NGN').notNull(),
   feeMinor: bigint('fee_minor', { mode: 'number' }).default(0).notNull(),
   status: payoutStatusEnum('status').default('pending_approval').notNull(),
+  providerReference: text('provider_reference').unique(),
   paystackTransferCode: text('paystack_transfer_code'),
   requestedBy: uuid('requested_by').references(() => profiles.id),
   approvedBy: uuid('approved_by').references(() => profiles.id),
@@ -390,5 +438,128 @@ export const auditEvents = pgTable('audit_events', {
   resourceId: text('resource_id'),
   metadata: jsonb('metadata').default({}).notNull(),
   ipAddress: text('ip_address'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+// 7. Fulfilment
+export const shipments = pgTable('shipments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull().unique(),
+  carrier: text('carrier').default('platform_default').notNull(),
+  trackingCode: text('tracking_code'),
+  status: shipmentStatusEnum('status').default('pending').notNull(),
+  pickupEvidenceUrl: text('pickup_evidence_url'),
+  deliveryEvidenceUrl: text('delivery_evidence_url'),
+  shippedAt: timestamp('shipped_at', { withTimezone: true }),
+  deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const shipmentEvents = pgTable('shipment_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  shipmentId: uuid('shipment_id').references(() => shipments.id, { onDelete: 'cascade' }).notNull(),
+  status: shipmentStatusEnum('status').notNull(),
+  note: text('note'),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const deliveryZones = pgTable('delivery_zones', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  state: text('state').notNull(),
+  lga: text('lga').notNull(),
+  feeMinor: bigint('fee_minor', { mode: 'number' }).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+}, (t) => ({
+  stateLgaIdx: uniqueIndex('delivery_zones_state_lga_idx').on(t.state, t.lga)
+}));
+
+// 8. Returns, Disputes, Support
+export const returnRequests = pgTable('return_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
+  buyerId: uuid('buyer_id').references(() => profiles.id, { onDelete: 'restrict' }).notNull(),
+  merchantId: uuid('merchant_id').references(() => merchants.id, { onDelete: 'restrict' }).notNull(),
+  reason: text('reason').notNull(),
+  evidenceUrl: text('evidence_url'),
+  status: returnStatusEnum('status').default('requested').notNull(),
+  decidedBy: uuid('decided_by').references(() => profiles.id),
+  decisionNote: text('decision_note'),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const disputes = pgTable('disputes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
+  openedBy: uuid('opened_by').references(() => profiles.id, { onDelete: 'restrict' }).notNull(),
+  reason: text('reason').notNull(),
+  status: disputeStatusEnum('status').default('open').notNull(),
+  resolutionNote: text('resolution_note'),
+  resolvedBy: uuid('resolved_by').references(() => profiles.id),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const supportTickets = pgTable('support_tickets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => profiles.id, { onDelete: 'cascade' }).notNull(),
+  orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+  subject: text('subject').notNull(),
+  body: text('body'),
+  status: ticketStatusEnum('status').default('open').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+// 9. Refunds
+export const refunds = pgTable('refunds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
+  paymentAttemptId: uuid('payment_attempt_id').references(() => paymentAttempts.id, { onDelete: 'restrict' }).notNull(),
+  amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+  currency: text('currency').default('NGN').notNull(),
+  reason: text('reason').notNull(),
+  status: refundStatusEnum('status').default('initialized').notNull(),
+  providerRefCode: text('provider_ref_code'),
+  initiatedBy: uuid('initiated_by').references(() => profiles.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+// 10. Notifications
+export const notifications = pgTable('notifications', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => profiles.id, { onDelete: 'cascade' }).notNull(),
+  type: text('type').notNull(),
+  title: text('title').notNull(),
+  body: text('body'),
+  data: jsonb('data').default({}).notNull(),
+  readAt: timestamp('read_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+// 11. Outbox & Idempotency
+export const outboxEvents = pgTable('outbox_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  type: text('type').notNull(),
+  payload: jsonb('payload').notNull(),
+  status: outboxStatusEnum('status').default('pending').notNull(),
+  attempts: integer('attempts').default(0).notNull(),
+  availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
+  lastError: text('last_error'),
+  processedAt: timestamp('processed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const idempotencyKeys = pgTable('idempotency_keys', {
+  key: text('key').primaryKey(),
+  scope: text('scope').notNull(),
+  responseStatus: integer('response_status').notNull(),
+  responseBody: jsonb('response_body').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 });

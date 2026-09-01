@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../../db/client.js';
-import { categories, products, productVariants, productMedia, merchants } from '../../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { categories, products, productVariants, productMedia, merchants, inventoryLevels } from '../../db/schema.js';
+import { eq, and, inArray } from 'drizzle-orm';
 
 export const catalogRouter = Router();
 
@@ -46,13 +46,43 @@ catalogRouter.get('/products', async (req: Request, res: Response) => {
         merchantId: products.merchantId,
         merchantName: merchants.businessName,
         categoryName: categories.name,
+        categorySlug: categories.slug,
       })
       .from(products)
       .leftJoin(merchants, eq(products.merchantId, merchants.id))
       .leftJoin(categories, eq(products.categoryId, categories.id))
       .where(and(...conditions));
 
-    res.json({ success: true, data: productList });
+    if (productList.length === 0) {
+      res.json({ success: true, data: [] });
+      return;
+    }
+
+    const productIds = productList.map((product) => product.id);
+    const [variants, media] = await Promise.all([
+      db
+        .select({
+          id: productVariants.id,
+          productId: productVariants.productId,
+          title: productVariants.title,
+          priceMinor: productVariants.priceMinor,
+          attributes: productVariants.attributes,
+          availableQuantity: inventoryLevels.availableQuantity,
+        })
+        .from(productVariants)
+        .leftJoin(inventoryLevels, eq(inventoryLevels.variantId, productVariants.id))
+        .where(inArray(productVariants.productId, productIds)),
+      db.select().from(productMedia).where(inArray(productMedia.productId, productIds)).orderBy(productMedia.sortOrder),
+    ]);
+
+    res.json({
+      success: true,
+      data: productList.map((product) => ({
+        ...product,
+        variants: variants.filter((variant) => variant.productId === product.id),
+        media: media.filter((item) => item.productId === product.id),
+      })),
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: { code: 'CATALOG_ERROR', message: err.message } });
   }

@@ -190,11 +190,11 @@ export default function InvoiceViewerModal() {
               <Text style={styles.totalVal}>₦ {totalAmount.toLocaleString()}</Text>
             </View>
 
-            {/* Escrow Footer Note */}
+            {/* Payment Footer Note */}
             <View style={styles.escrowNote}>
               <Ionicons name="shield-checkmark" size={16} color="#157347" />
               <Text style={styles.escrowNoteText}>
-                Payment settled via Paystack Escrow (Merchant RC-1988241 verified).
+                Payment processed through Paystack. Merchant information is shown on the order record.
               </Text>
             </View>
           </View>

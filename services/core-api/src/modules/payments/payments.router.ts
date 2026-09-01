@@ -1,136 +1,218 @@
-import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
+import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { orders, paymentAttempts, providerEvents, inventoryReservations, inventoryLevels } from '../../db/schema.js';
-import { eq, sql } from 'drizzle-orm';
-import { LedgerService } from '../ledger/ledger.service.js';
+import { orders, outboxEvents, paymentAttempts, providerEvents } from '../../db/schema.js';
+import { requireAuth } from '../../middleware/auth.js';
+import { idempotency } from '../../middleware/idempotency.js';
+import { rateLimit } from '../../middleware/rateLimit.js';
+import { AppError, errors, sendError } from '../../lib/errors.js';
+import { PaystackClient } from '../../lib/paystack.js';
+import { completeSuccessfulPayment } from './payments.service.js';
+import { settlePayoutTransfer, TransferOutcome } from '../payouts/payouts.service.js';
 
 export const paymentsRouter = Router();
 
-// POST /v1/payments/webhook/paystack
-paymentsRouter.post('/webhook/paystack', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const paystackSignature = req.headers['x-paystack-signature'] as string;
-    const secretKey = process.env.PAYSTACK_SECRET_KEY || '';
+const InitializeSchema = z.object({
+  orderId: z.string().uuid(),
+  callbackUrl: z.string().url().optional(),
+});
 
-    if (!paystackSignature && process.env.NODE_ENV === 'production') {
-      res.status(401).json({ success: false, message: 'Missing Paystack signature' });
-      return;
-    }
-
-    // Verify HMAC-SHA512 signature if secret key is present
-    if (secretKey && secretKey !== 'sk_test_placeholder') {
-      const hash = crypto
-        .createHmac('sha512', secretKey)
-        .update(JSON.stringify(req.body))
-        .digest('hex');
-
-      if (hash !== paystackSignature) {
-        res.status(401).json({ success: false, message: 'Invalid webhook signature' });
-        return;
-      }
-    }
-
-    const event = req.body;
-    const eventId = event?.data?.id ? String(event.data.id) : `evt-${Date.now()}`;
-    const eventType = event?.event || 'charge.success';
-
-    // 1. Idempotency Check: Save event
+paymentsRouter.post(
+  '/initialize',
+  requireAuth,
+  rateLimit({ windowMs: 60_000, max: 10, keyBy: (req) => req.user?.id ?? req.ip ?? 'anon' }),
+  idempotency('payment-initialize'),
+  async (req: Request, res: Response) => {
     try {
-      await db.insert(providerEvents).values({
-        eventId,
-        provider: 'paystack',
-        eventType,
-        payload: event,
-        processedAt: new Date(),
-      });
-    } catch {
-      // Event already recorded and processed
-      res.status(200).json({ status: 'already_processed' });
-      return;
-    }
+      const parsed = InitializeSchema.safeParse(req.body);
+      if (!parsed.success) throw errors.validation(parsed.error.message);
 
-    // 2. Handle successful charge
-    if (eventType === 'charge.success') {
-      const reference = event.data.reference;
-      const amountPaidMinor = event.data.amount; // Paystack sends amounts in Kobo
-
-      const [attempt] = await db
-        .select()
-        .from(paymentAttempts)
-        .where(eq(paymentAttempts.providerReference, reference))
-        .limit(1);
-
-      if (!attempt) {
-        res.status(200).json({ status: 'unknown_reference_ignored' });
-        return;
+      const [order] = await db.select().from(orders).where(eq(orders.id, parsed.data.orderId)).limit(1);
+      if (!order || order.buyerId !== req.user!.id) throw errors.notFound('Order not found.');
+      if (order.status !== 'pending_payment') {
+        throw errors.conflict('ORDER_NOT_PAYABLE', 'This order is no longer awaiting payment.');
       }
 
-      // Update payment attempt
+      const reference = `SFBF-RETRY-${crypto.randomUUID()}`;
+      const [attempt] = await db
+        .insert(paymentAttempts)
+        .values({
+          orderId: order.id,
+          provider: 'paystack',
+          providerReference: reference,
+          amountMinor: order.totalAmountMinor,
+          currency: order.currency,
+          status: 'initialized',
+        })
+        .returning();
+
+      const initialized = await PaystackClient.initializeTransaction({
+        reference,
+        amountMinor: order.totalAmountMinor,
+        email: req.user!.email,
+        callbackUrl: parsed.data.callbackUrl ?? process.env.PAYSTACK_CALLBACK_URL,
+        metadata: { orderId: order.id, orderNumber: order.orderNumber },
+      });
+
       await db
         .update(paymentAttempts)
-        .set({ status: 'successful', updatedAt: new Date() })
+        .set({ accessCode: initialized.accessCode, updatedAt: new Date() })
         .where(eq(paymentAttempts.id, attempt.id));
 
-      // Fetch Order
-      const [order] = await db
-        .select()
-        .from(orders)
-        .where(eq(orders.id, attempt.orderId))
-        .limit(1);
+      res.status(201).json({
+        success: true,
+        data: {
+          orderId: order.id,
+          reference,
+          authorizationUrl: initialized.authorizationUrl,
+          accessCode: initialized.accessCode,
+        },
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  }
+);
 
-      if (order && order.status === 'pending_payment') {
-        // Update Order Status to payment_confirmed
+paymentsRouter.get('/verify/:reference', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const reference = req.params.reference;
+    const [owned] = await db
+      .select({ attempt: paymentAttempts, order: orders })
+      .from(paymentAttempts)
+      .innerJoin(orders, eq(orders.id, paymentAttempts.orderId))
+      .where(eq(paymentAttempts.providerReference, reference))
+      .limit(1);
+
+    if (!owned || owned.order.buyerId !== req.user!.id) throw errors.notFound('Payment attempt not found.');
+    const verified = await PaystackClient.verifyTransaction(reference);
+
+    if (verified.status !== 'success') {
+      if (verified.status === 'failed' || verified.status === 'abandoned') {
         await db
-          .update(orders)
-          .set({ status: 'payment_confirmed', updatedAt: new Date() })
-          .where(eq(orders.id, order.id));
-
-        // Commit Inventory Reservations & Deduct Available Stock
-        const reservations = await db
-          .select()
-          .from(inventoryReservations)
-          .where(eq(inventoryReservations.orderId, order.id));
-
-        for (const resItem of reservations) {
-          await db
-            .update(inventoryReservations)
-            .set({ status: 'committed' })
-            .where(eq(inventoryReservations.id, resItem.id));
-
-          await db
-            .update(inventoryLevels)
-            .set({
-              availableQuantity: sql`${inventoryLevels.availableQuantity} - ${resItem.quantity}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(inventoryLevels.variantId, resItem.variantId));
-        }
-
-        // Post Double-Entry Journal Entry
-        // Debit: Paystack Clearing Account (Asset)
-        // Credit: Merchant Payable (Liability)
-        // Credit: Platform Commission Revenue (Revenue)
-        const commission = order.platformCommissionMinor;
-        const merchantShare = order.subtotalMinor - commission;
-        const total = order.totalAmountMinor;
-
-        await LedgerService.postJournalEntry({
-          reference: `JRN-${order.orderNumber}`,
-          entryType: 'order_payment',
-          narration: `Payment settlement for Order #${order.orderNumber}`,
-          lines: [
-            { accountCode: '1000', direction: 'debit', amountMinor: total }, // Debit Asset (Paystack)
-            { accountCode: '2000', direction: 'credit', amountMinor: merchantShare }, // Credit Merchant Liability
-            { accountCode: '4000', direction: 'credit', amountMinor: commission + order.deliveryFeeMinor }, // Credit Platform Revenue
-          ],
-        });
+          .update(paymentAttempts)
+          .set({ status: verified.status, rawResponse: verified.raw, updatedAt: new Date() })
+          .where(eq(paymentAttempts.id, owned.attempt.id));
       }
+      res.json({ success: true, data: { reference, status: verified.status } });
+      return;
     }
 
-    res.status(200).json({ status: 'success' });
-  } catch (err: any) {
-    console.error('Webhook processing error:', err);
-    res.status(500).json({ success: false, error: err.message });
+    const result = await completeSuccessfulPayment({
+      reference,
+      amountMinor: verified.amountMinor,
+      currency: verified.currency,
+      raw: verified.raw,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+paymentsRouter.post('/webhook/paystack', async (req: Request, res: Response) => {
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  const signature = req.headers['x-paystack-signature'];
+  if (!rawBody || !PaystackClient.verifyWebhookSignature(rawBody, typeof signature === 'string' ? signature : undefined)) {
+    res.status(401).json({ success: false, error: { code: 'INVALID_SIGNATURE', message: 'Invalid webhook signature.' } });
+    return;
+  }
+
+  const event = req.body as { event?: string; data?: Record<string, any> };
+  const eventType = event.event;
+  const eventId = event.data?.id;
+  if (!eventType || eventId === undefined || eventId === null) {
+    res.status(400).json({ success: false, error: { code: 'INVALID_EVENT', message: 'Malformed Paystack event.' } });
+    return;
+  }
+
+  const providerEventId = String(eventId);
+  let [providerEvent] = await db
+    .select({ id: providerEvents.id, processedAt: providerEvents.processedAt })
+    .from(providerEvents)
+    .where(eq(providerEvents.eventId, providerEventId))
+    .limit(1);
+
+  if (!providerEvent) {
+    const inserted = await db
+      .insert(providerEvents)
+      .values({ eventId: providerEventId, provider: 'paystack', eventType, payload: event })
+      .onConflictDoNothing()
+      .returning({ id: providerEvents.id, processedAt: providerEvents.processedAt });
+    providerEvent = inserted[0] ?? (
+      await db
+        .select({ id: providerEvents.id, processedAt: providerEvents.processedAt })
+        .from(providerEvents)
+        .where(eq(providerEvents.eventId, providerEventId))
+        .limit(1)
+    )[0];
+  }
+
+  if (!providerEvent) {
+    res.status(503).json({ success: false, error: { code: 'WEBHOOK_PERSISTENCE_ERROR', message: 'Could not persist provider event.' } });
+    return;
+  }
+  if (providerEvent.processedAt) {
+    res.status(200).json({ status: 'already_received' });
+    return;
+  }
+
+  try {
+    if (eventType === 'charge.success') {
+      const reference = String(event.data?.reference ?? '');
+      if (!reference) throw errors.validation('Paystack charge event has no reference.');
+
+      const verified = await PaystackClient.verifyTransaction(reference);
+      if (verified.status !== 'success') {
+        throw errors.paymentFailed('Paystack did not independently verify the transaction as successful.');
+      }
+      await completeSuccessfulPayment({
+        reference,
+        amountMinor: verified.amountMinor,
+        currency: verified.currency,
+        raw: verified.raw,
+      });
+    } else if (['transfer.success', 'transfer.failed', 'transfer.reversed'].includes(eventType)) {
+      const reference = String(event.data?.reference ?? '');
+      if (!reference) throw errors.validation('Paystack transfer event has no reference.');
+      const verified = await PaystackClient.verifyTransfer(reference);
+      const outcomeMap: Record<string, TransferOutcome> = {
+        success: 'successful',
+        failed: 'failed',
+        reversed: 'reversed',
+      };
+      const outcome = outcomeMap[verified.status];
+      if (!outcome) throw errors.paymentFailed(`Unexpected Paystack transfer status: ${verified.status}.`);
+      await settlePayoutTransfer({
+        reference,
+        outcome,
+        transferCode: verified.transferCode,
+        raw: verified.raw,
+      });
+    }
+
+    await db
+      .update(providerEvents)
+      .set({ processedAt: new Date() })
+      .where(eq(providerEvents.id, providerEvent.id));
+    res.status(200).json({ status: 'processed' });
+  } catch (err) {
+    if (err instanceof AppError && (err.code === 'PAYMENT_MISMATCH' || err.code === 'NOT_FOUND')) {
+      await db.transaction(async (tx) => {
+        await tx.insert(outboxEvents).values({
+          type: 'payment.exception',
+          payload: { providerEventId: providerEvent.id, code: err.code, message: err.message },
+        });
+        await tx
+          .update(providerEvents)
+          .set({ processedAt: new Date() })
+          .where(eq(providerEvents.id, providerEvent.id));
+      });
+      res.status(200).json({ status: 'exception_recorded' });
+      return;
+    }
+    sendError(res, err);
   }
 });

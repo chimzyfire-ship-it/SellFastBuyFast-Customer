@@ -27,9 +27,9 @@ const SLIDES = [
   },
   {
     id: '2',
-    kicker: 'ZERO-STRESS ESCROW PROTECTION',
+    kicker: 'SECURE PAYSTACK CHECKOUT',
     title: 'Pay With Confidence\n& Total Security',
-    description: 'Seamless Naira card checkout, bank transfers & automated Paystack escrow. Your payment is protected until you receive your order.',
+    description: 'Use Paystack-hosted card, bank-transfer, or USSD checkout. We verify payment server-side before an order is released for fulfilment.',
     image: require('../../../assets/onboarding-slide2.png'),
   },
   {

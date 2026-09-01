@@ -1,11 +1,9 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema.js';
-import dotenv from 'dotenv';
+import { config } from '../lib/config.js';
 
-dotenv.config();
-
-const connectionString = process.env.DATABASE_URL || '';
+const connectionString = config.databaseUrl;
 
 if (!connectionString) {
   console.warn('⚠️ DATABASE_URL environment variable is not defined.');
@@ -21,3 +19,6 @@ const client = postgres(connectionString, {
 
 export const db = drizzle(client, { schema });
 export { schema };
+export function closeDatabase(): Promise<void> {
+  return client.end();
+}

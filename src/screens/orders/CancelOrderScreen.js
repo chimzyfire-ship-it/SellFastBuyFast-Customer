@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   StyleSheet,
   Text,
   View,
@@ -21,6 +22,7 @@ export default function CancelOrderScreen() {
   const orderId = currentRoute.params?.orderId || 'ORD-2026-8891';
   const [selectedReason, setSelectedReason] = useState('Changed my mind');
   const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const REASONS = [
     'Changed my mind',
@@ -29,9 +31,13 @@ export default function CancelOrderScreen() {
     'Ordered wrong size or color variant',
   ];
 
-  const handleSubmitCancel = () => {
-    cancelOrder(orderId, selectedReason);
-    goBack();
+  const handleSubmitCancel = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    const reason = note.trim() ? `${selectedReason}: ${note.trim()}` : selectedReason;
+    const result = await cancelOrder(orderId, reason);
+    setSubmitting(false);
+    if (result.success) goBack();
   };
 
   return (
@@ -85,8 +91,9 @@ export default function CancelOrderScreen() {
           style={styles.submitBtn}
           activeOpacity={0.85}
           onPress={handleSubmitCancel}
+          disabled={submitting}
         >
-          <Text style={styles.submitText}>Submit Order Cancellation</Text>
+          {submitting ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.submitText}>Submit Order Cancellation</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

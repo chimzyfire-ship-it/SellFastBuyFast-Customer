@@ -234,7 +234,7 @@ export default function OrderDetailScreen() {
           <View style={styles.escrowNoticeRow}>
             <Ionicons name="shield-checkmark" size={13} color="#157347" />
             <Text style={styles.escrowNoticeText}>
-              Protected by Paystack Escrow • Ref: {order.paymentReference || 'PSTK-889123-NG'}
+              Payment processed through Paystack
             </Text>
           </View>
         </View>
@@ -250,7 +250,7 @@ export default function OrderDetailScreen() {
               <Ionicons name="return-up-back-outline" size={20} color="#0F382C" />
             </View>
             <Text style={styles.actionCardTitle}>Request Return</Text>
-            <Text style={styles.actionCardSub}>14-day buyer protection</Text>
+            <Text style={styles.actionCardSub}>Subject to the marketplace return policy</Text>
           </TouchableOpacity>
 
           <TouchableOpacity

@@ -2,35 +2,48 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { PRODUCTS, CATEGORIES } from '../data/mockData';
 import { supabase } from '../lib/supabase';
 import { fetchLiveCategories, fetchLiveProducts } from '../services/catalogService';
+import { cancelOrder as cancelOrderRequest, listOrders } from '../services/orderService';
 
 const AppContext = createContext();
+const MOCKS_ENABLED = process.env.EXPO_PUBLIC_ENABLE_MOCKS === 'true';
+const GUEST_USER = {
+  id: null,
+  name: 'Guest',
+  email: '',
+  phone: '',
+  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+  memberSince: '',
+  verified: false,
+};
+
+function mapAuthUser(authUser) {
+  return {
+    id: authUser.id,
+    name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Member',
+    email: authUser.email || '',
+    phone: authUser.phone || authUser.user_metadata?.phone || '',
+    avatar: authUser.user_metadata?.avatar_url || GUEST_USER.avatar,
+    memberSince: new Date(authUser.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    verified: Boolean(authUser.email_confirmed_at || authUser.phone_confirmed_at),
+  };
+}
 
 export const AppProvider = ({ children }) => {
   // Live Catalogue State
-  const [liveCategories, setLiveCategories] = useState(CATEGORIES);
-  const [liveProducts, setLiveProducts] = useState(PRODUCTS);
+  const [liveCategories, setLiveCategories] = useState(MOCKS_ENABLED ? CATEGORIES : []);
+  const [liveProducts, setLiveProducts] = useState(MOCKS_ENABLED ? PRODUCTS : []);
   const [isLoadingCatalogue, setIsLoadingCatalogue] = useState(false);
 
   // Authentication State
-  const [user, setUser] = useState({
-    id: 'usr_101',
-    name: 'Amina Bello',
-    email: 'amina.bello@example.ng',
-    phone: '+234 803 123 4567',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-    memberSince: 'August 2024',
-    verified: true,
-  });
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
-  const [authLoading, setAuthLoading] = useState(false);
+  const [user, setUser] = useState(GUEST_USER);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
 
   // Intent preservation for Auth redirect
   const [intendedRoute, setIntendedRoute] = useState(null);
 
   // Cart / Bag state (v1 rule: single merchant per bag)
-  const [cart, setCart] = useState([
-    { product: PRODUCTS[0], quantity: 1, color: PRODUCTS[0].colors[0], size: PRODUCTS[0].sizes[0] },
-  ]);
+  const [cart, setCart] = useState([]);
 
   // Wishlist / Saved items
   const [wishlist, setWishlist] = useState(['p1', 'p4']);
@@ -64,52 +77,7 @@ export const AppProvider = ({ children }) => {
   const [selectedDeliveryMethod, setSelectedDeliveryMethod] = useState('standard'); // 'standard' | 'express'
 
   // Orders State
-  const [orders, setOrders] = useState([
-    {
-      id: 'ORD-2026-8891',
-      date: '2026-08-08T14:30:00Z',
-      merchantName: 'SellFast Tech',
-      merchantId: 'm1',
-      status: 'Shipped', // 'Placed' | 'Accepted' | 'Shipped' | 'Out for Delivery' | 'Delivered' | 'Cancelled' | 'Returned'
-      totalAmount: 154500,
-      deliveryMethod: 'Standard Door Delivery',
-      deliveryFee: 4500,
-      trackingNumber: 'SL-NG-99824',
-      carrierName: 'GIG Logistics',
-      estimatedDelivery: '12 Aug 2026',
-      items: [
-        { product: PRODUCTS[0], quantity: 1, price: 150000, color: '#1C1C1E', size: '41mm' },
-      ],
-      shippingAddress: {
-        recipient: 'Amina Bello',
-        street: '14b Admiralty Way, Victoria Island',
-        city: 'Lagos',
-      },
-      paymentReference: 'PSTK-889123-NG',
-    },
-    {
-      id: 'ORD-2026-7740',
-      date: '2026-07-29T10:15:00Z',
-      merchantName: 'SellFast Artisans',
-      merchantId: 'm4',
-      status: 'Delivered',
-      totalAmount: 89500,
-      deliveryMethod: 'Express Delivery',
-      deliveryFee: 4500,
-      trackingNumber: 'SL-NG-77401',
-      carrierName: 'DHL Express Nigeria',
-      estimatedDelivery: '30 Jul 2026',
-      items: [
-        { product: PRODUCTS[3], quantity: 1, price: 85000, color: '#0F382C', size: 'One Size' },
-      ],
-      shippingAddress: {
-        recipient: 'Amina Bello',
-        street: '14b Admiralty Way, Victoria Island',
-        city: 'Lagos',
-      },
-      paymentReference: 'PSTK-774011-NG',
-    },
-  ]);
+  const [orders, setOrders] = useState([]);
 
   // Support Tickets State
   const [tickets, setTickets] = useState([
@@ -191,87 +159,58 @@ export const AppProvider = ({ children }) => {
     }
   }, []);
 
+  const refreshOrders = useCallback(async () => {
+    const data = await listOrders();
+    setOrders(data);
+    return data;
+  }, []);
+
   useEffect(() => {
     loadCatalogueData();
 
-    // Check for existing Supabase Auth Session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        setUser({
-          id: session.user.id,
-          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Member',
-          email: session.user.email,
-          phone: session.user.phone || '+234 803 123 4567',
-          avatar: session.user.user_metadata?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-          memberSince: new Date(session.user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-          verified: true,
-        });
+        setUser(mapAuthUser(session.user));
         setIsAuthenticated(true);
+        void refreshOrders().catch(() => {});
+      } else {
+        setUser(GUEST_USER);
+        setIsAuthenticated(false);
       }
+      setAuthLoading(false);
     });
 
     // Listen for Auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        setUser({
-          id: session.user.id,
-          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Member',
-          email: session.user.email,
-          phone: session.user.phone || '+234 803 123 4567',
-          avatar: session.user.user_metadata?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-          memberSince: new Date(session.user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-          verified: true,
-        });
+        setUser(mapAuthUser(session.user));
         setIsAuthenticated(true);
+        void refreshOrders().catch(() => {});
+      } else {
+        setUser(GUEST_USER);
+        setIsAuthenticated(false);
+        setOrders([]);
       }
     });
 
     return () => {
       subscription?.unsubscribe();
     };
-  }, [loadCatalogueData]);
+  }, [loadCatalogueData, refreshOrders]);
 
   // Auth Methods (Supabase Powered with Local Fallback)
   const signIn = async (emailOrPhone, password) => {
     setAuthLoading(true);
     try {
-      if (emailOrPhone.includes('@')) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: emailOrPhone,
-          password: password,
-        });
-
-        if (error) throw error;
-
-        if (data?.user) {
-          setUser({
-            id: data.user.id,
-            name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Member',
-            email: data.user.email,
-            phone: data.user.phone || '+234 803 123 4567',
-            avatar: data.user.user_metadata?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-            memberSince: new Date(data.user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-            verified: true,
-          });
-          setIsAuthenticated(true);
-          showToast('Signed in successfully');
-          return { success: true };
-        }
-      } else {
-        // Phone / Mock path
-        setIsAuthenticated(true);
-        setUser({
-          id: 'usr_101',
-          name: 'Amina Bello',
-          email: emailOrPhone,
-          phone: '+234 803 123 4567',
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-          memberSince: 'August 2024',
-          verified: true,
-        });
-        showToast('Signed in successfully');
-        return { success: true };
-      }
+      if (!emailOrPhone.includes('@')) throw new Error('Sign in with your email address.');
+      const { data, error } = await supabase.auth.signInWithPassword({ email: emailOrPhone, password });
+      if (error) throw error;
+      if (!data?.user) throw new Error('Sign in did not return a user session.');
+      setUser(mapAuthUser(data.user));
+      setIsAuthenticated(true);
+      await refreshOrders().catch(() => []);
+      showToast('Signed in successfully');
+      return { success: true };
     } catch (err) {
       showToast(err.message || 'Failed to sign in');
       return { success: false, error: err.message };
@@ -283,48 +222,18 @@ export const AppProvider = ({ children }) => {
   const signUp = async (name, email, phone, password = 'Password123!') => {
     setAuthLoading(true);
     try {
-      if (email.includes('@')) {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: name,
-              phone: phone,
-            },
-          },
-        });
-
-        if (error) throw error;
-
-        if (data?.user) {
-          setUser({
-            id: data.user.id,
-            name: name,
-            email: email,
-            phone: phone,
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-            memberSince: 'August 2026',
-            verified: true,
-          });
-          setIsAuthenticated(true);
-          showToast('Account created successfully');
-          return { success: true };
-        }
-      } else {
-        setIsAuthenticated(true);
-        setUser({
-          id: 'usr_' + Date.now(),
-          name,
-          email,
-          phone,
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-          memberSince: 'August 2026',
-          verified: true,
-        });
-        showToast('Account created successfully');
-        return { success: true };
-      }
+      if (!email.includes('@')) throw new Error('A valid email address is required.');
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: name, phone } },
+      });
+      if (error) throw error;
+      if (!data?.user) throw new Error('Account creation did not return a user.');
+      setUser(mapAuthUser(data.user));
+      setIsAuthenticated(Boolean(data.session));
+      showToast(data.session ? 'Account created successfully' : 'Check your email to confirm your account');
+      return { success: true, requiresEmailConfirmation: !data.session };
     } catch (err) {
       showToast(err.message || 'Failed to create account');
       return { success: false, error: err.message };
@@ -339,7 +248,9 @@ export const AppProvider = ({ children }) => {
     } catch {
       // ignore
     }
+    setUser(GUEST_USER);
     setIsAuthenticated(false);
+    setOrders([]);
     showToast('Signed out of account');
   };
 
@@ -462,43 +373,16 @@ export const AppProvider = ({ children }) => {
     showToast('Default delivery address updated');
   };
 
-  // Order Placement
-  const createOrder = (paymentRef) => {
-    const selectedAddressObj = addresses.find((a) => a.id === selectedAddressId) || addresses[0];
-    const merchantName = cart[0]?.product.merchant || 'SellFast Direct';
-    const merchantId = cart[0]?.product.merchantId || 'm1';
-    const subtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-    const deliveryFee = selectedDeliveryMethod === 'express' ? 7500 : 4500;
-
-    const newOrder = {
-      id: 'ORD-2026-' + Math.floor(1000 + Math.random() * 9000),
-      date: new Date().toISOString(),
-      merchantName,
-      merchantId,
-      status: 'Placed',
-      totalAmount: subtotal + deliveryFee,
-      deliveryMethod: selectedDeliveryMethod === 'express' ? 'Express Priority Delivery' : 'Standard Door Delivery',
-      deliveryFee,
-      trackingNumber: 'SL-NG-' + Math.floor(10000 + Math.random() * 90000),
-      carrierName: selectedDeliveryMethod === 'express' ? 'DHL Express Nigeria' : 'GIG Logistics',
-      estimatedDelivery: selectedDeliveryMethod === 'express' ? 'Tomorrow' : '3 Days',
-      items: [...cart],
-      shippingAddress: selectedAddressObj,
-      paymentReference: paymentRef || 'PSTK-' + Date.now(),
-    };
-
-    setOrders([newOrder, ...orders]);
-    clearCart();
-    return newOrder;
-  };
-
-  const cancelOrder = (orderId, reason) => {
-    setOrders(
-      orders.map((o) =>
-        o.id === orderId ? { ...o, status: 'Cancelled', cancelReason: reason } : o
-      )
-    );
-    showToast(`Order ${orderId} cancelled`);
+  const cancelOrder = async (orderId, reason) => {
+    try {
+      await cancelOrderRequest(orderId, reason);
+      await refreshOrders();
+      showToast('Order cancelled');
+      return { success: true };
+    } catch (err) {
+      showToast(err.message || 'Unable to cancel order');
+      return { success: false, error: err.message };
+    }
   };
 
   // Support Ticket creation & message response
@@ -604,7 +488,7 @@ export const AppProvider = ({ children }) => {
         selectedDeliveryMethod,
         setSelectedDeliveryMethod,
         orders,
-        createOrder,
+        refreshOrders,
         cancelOrder,
         tickets,
         createSupportTicket,

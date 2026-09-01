@@ -82,9 +82,9 @@ export default function OrderConfirmationScreen() {
             },
           ]}
         >
-          <Text style={styles.titleText}>Payment Verified & Escrow Held!</Text>
+          <Text style={styles.titleText}>Payment Verified</Text>
           <Text style={styles.subtitleText}>
-            Your payment of <Text style={styles.highlightAmount}>₦ {order?.totalAmount?.toLocaleString() || '154,500'}</Text> has been authorized and secured in Paystack escrow.
+            Your payment of <Text style={styles.highlightAmount}>₦ {order?.totalAmount?.toLocaleString() || '0'}</Text> has been independently verified and your order is ready for merchant acceptance.
           </Text>
 
           {/* Order Reference Box */}
@@ -141,11 +141,11 @@ export default function OrderConfirmationScreen() {
             </View>
           </View>
 
-          {/* Buyer Protection Guarantee Notice */}
+          {/* Buyer Protection Notice */}
           <View style={styles.protectionBox}>
             <Ionicons name="shield-checkmark" size={16} color="#0F382C" />
             <Text style={styles.protectionText}>
-              Funds will only be released to merchant after you inspect and accept your delivery.
+              Merchant funds remain pending until delivery evidence is recorded and the approved return window has elapsed.
             </Text>
           </View>
 

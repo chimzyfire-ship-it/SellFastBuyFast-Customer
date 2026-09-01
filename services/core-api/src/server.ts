@@ -1,12 +1,19 @@
-import dotenv from 'dotenv';
 import { createApp } from './app.js';
+import { closeDatabase } from './db/client.js';
+import { config, validateRuntimeConfig } from './lib/config.js';
 
-dotenv.config();
+validateRuntimeConfig();
 
-const port = process.env.PORT || 4000;
 const app = createApp();
-
-app.listen(port, () => {
-  console.log(`🚀 SellFastBuyFast Core API listening on http://localhost:${port}`);
-  console.log(`📡 Health Check: http://localhost:${port}/health`);
+const server = app.listen(config.port, () => {
+  console.log(`SellFastBuyFast Core API listening on http://localhost:${config.port}`);
 });
+
+function shutdown(): void {
+  server.close(() => {
+    void closeDatabase().finally(() => process.exit(0));
+  });
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
