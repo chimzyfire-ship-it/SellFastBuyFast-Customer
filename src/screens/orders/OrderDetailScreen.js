@@ -210,9 +210,9 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-        {/* Payment & Price Breakdown */}
+        {/* Order Price Breakdown */}
         <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>Payment Breakdown</Text>
+          <Text style={styles.cardSectionTitle}>Order Total</Text>
 
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>Items Subtotal</Text>
@@ -227,14 +227,14 @@ export default function OrderDetailScreen() {
           <View style={styles.divider} />
 
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Paid (NGN)</Text>
+            <Text style={styles.totalLabel}>Total (NGN)</Text>
             <Text style={styles.totalVal}>₦ {totalAmount.toLocaleString()}</Text>
           </View>
 
           <View style={styles.escrowNoticeRow}>
             <Ionicons name="shield-checkmark" size={13} color="#157347" />
             <Text style={styles.escrowNoticeText}>
-              Payment processed through Paystack
+              Payment handling is shown only after the payment module is enabled
             </Text>
           </View>
         </View>
@@ -265,6 +265,24 @@ export default function OrderDetailScreen() {
             <Text style={styles.actionCardSub}>24/7 VIP concierge help</Text>
           </TouchableOpacity>
         </View>
+
+        {['processing', 'in_transit', 'delivered', 'completed'].includes(order.apiStatus) && (
+          <TouchableOpacity
+            style={styles.disputeCard}
+            activeOpacity={0.8}
+            onPress={() => navigate('create-dispute', { orderId: order.id })}
+            accessibilityRole="button"
+          >
+            <View style={styles.actionIconCircle}>
+              <Ionicons name="alert-circle-outline" size={20} color="#0F382C" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionCardTitle}>Open a Marketplace Dispute</Text>
+              <Text style={[styles.actionCardSub, { textAlign: 'left' }]}>Use this for an unresolved fulfilment or item issue.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={17} color="#7E827A" />
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -622,6 +640,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 6,
     elevation: 2,
+  },
+  disputeCard: {
+    minHeight: 76,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#ECE8E1',
   },
   actionIconCircle: {
     width: 42,

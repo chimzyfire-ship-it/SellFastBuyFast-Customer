@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   SafeAreaView,
+  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +15,7 @@ import { useApp } from '../../context/AppContext';
 import { useNavigation } from '../../navigation/NavigationContext';
 
 export default function NotificationsScreen() {
-  const { notifications, markNotificationRead } = useApp();
+  const { notifications, markNotificationRead, isLoadingCustomerCare, refreshCustomerCare } = useApp();
   const { goBack, navigate } = useNavigation();
 
   const handlePressNotif = (notif) => {
@@ -47,6 +48,13 @@ export default function NotificationsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.subTitle}>Order updates, courier tracking & VIP announcements</Text>
+
+        {isLoadingCustomerCare && notifications.length === 0 && (
+          <View style={styles.emptyState}>
+            <ActivityIndicator color={COLORS.emeraldPrimary} />
+            <Text style={styles.emptySub}>Loading notifications…</Text>
+          </View>
+        )}
 
         {notifications.map((item) => {
           const isUnread = !item.read;
@@ -88,7 +96,7 @@ export default function NotificationsScreen() {
           );
         })}
 
-        {notifications.length === 0 && (
+        {!isLoadingCustomerCare && notifications.length === 0 && (
           <View style={styles.emptyState}>
             <View style={styles.emptyIconCircle}>
               <Ionicons name="notifications-off-outline" size={32} color="#C69B56" />
@@ -97,6 +105,13 @@ export default function NotificationsScreen() {
             <Text style={styles.emptySub}>
               New order confirmations and shipment logistics updates will appear here in real time.
             </Text>
+            <TouchableOpacity
+              onPress={() => refreshCustomerCare().catch(() => {})}
+              accessibilityRole="button"
+              style={styles.retryButton}
+            >
+              <Text style={styles.retryText}>Refresh</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -227,6 +242,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 6,
     elevation: 2,
+  },
+  retryButton: {
+    marginTop: 12,
+    minHeight: 44,
+    paddingHorizontal: 20,
+    borderRadius: 22,
+    backgroundColor: COLORS.emeraldPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
   emptyIconCircle: {
     width: 64,

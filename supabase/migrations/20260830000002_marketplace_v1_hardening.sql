@@ -123,12 +123,36 @@ CREATE TABLE IF NOT EXISTS public.support_tickets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
     order_id UUID REFERENCES public.orders(id) ON DELETE SET NULL,
+    category TEXT NOT NULL DEFAULT 'general',
     subject TEXT NOT NULL,
     body TEXT,
     status public.ticket_status_type NOT NULL DEFAULT 'open',
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+ALTER TABLE public.support_tickets
+    ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'general';
+
+CREATE TABLE IF NOT EXISTS public.support_ticket_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id UUID NOT NULL REFERENCES public.support_tickets(id) ON DELETE CASCADE,
+    sender_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+    sender_role TEXT NOT NULL DEFAULT 'user'
+        CHECK (sender_role IN ('user', 'agent', 'system')),
+    body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 5000),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+CREATE INDEX IF NOT EXISTS support_ticket_messages_ticket_created_idx
+    ON public.support_ticket_messages (ticket_id, created_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS return_requests_one_open_per_order_idx
+    ON public.return_requests (order_id)
+    WHERE status NOT IN ('rejected', 'completed');
+
+CREATE INDEX IF NOT EXISTS support_tickets_user_created_idx
+    ON public.support_tickets (user_id, created_at DESC);
 
 -- ----------------------------------------------------------------------------
 -- 4. Refunds
@@ -162,6 +186,9 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     read_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+CREATE INDEX IF NOT EXISTS notifications_user_created_idx
+    ON public.notifications (user_id, created_at DESC);
 
 -- ----------------------------------------------------------------------------
 -- 6. Outbox & Idempotency
@@ -260,6 +287,7 @@ ALTER TABLE public.delivery_zones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.return_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.disputes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.support_ticket_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.refunds ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inventory_reservations ENABLE ROW LEVEL SECURITY;
@@ -301,6 +329,13 @@ CREATE POLICY "Parties can view own disputes" ON public.disputes
 
 CREATE POLICY "Users can view own tickets" ON public.support_tickets
     FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can view own ticket messages" ON public.support_ticket_messages
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM public.support_tickets t
+                WHERE t.id = support_ticket_messages.ticket_id
+                  AND t.user_id = auth.uid())
+    );
 
 CREATE POLICY "Buyers can view own order refunds" ON public.refunds
     FOR SELECT USING (

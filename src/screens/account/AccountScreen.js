@@ -38,7 +38,7 @@ export default function AccountScreen() {
   const handleBuyerProtection = () => {
     Alert.alert(
       'SellFast Buyer Protection',
-      '• Merchant review and catalogue moderation\n• Paystack-hosted payment processing\n• Delivery and return handling under the marketplace policy',
+      '• Merchant review and catalogue moderation\n• Server-controlled order and inventory operations\n• Delivery and return handling under the marketplace policy\n\nLive payment protection will be documented when the dedicated payment module is enabled.',
       [{ text: 'Understood' }]
     );
   };
@@ -184,14 +184,14 @@ export default function AccountScreen() {
             <TouchableOpacity
               style={styles.menuItem}
               activeOpacity={0.75}
-              onPress={() => showToast && showToast('Paystack tokenized card: •••• 4242 active')}
+              onPress={() => showToast && showToast('Payment methods will be available when the payment module is enabled')}
             >
               <View style={styles.iconCircle}>
                 <Ionicons name="card-outline" size={19} color="#0F382C" />
               </View>
               <View style={styles.menuTextWrap}>
-                <Text style={styles.menuTitle}>Saved Payment Methods</Text>
-                <Text style={styles.menuSub}>Mastercard •••• 4242 (Encrypted)</Text>
+                <Text style={styles.menuTitle}>Payment Methods</Text>
+                <Text style={styles.menuSub}>Setup deferred to the payment module</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#7E827A" />
             </TouchableOpacity>

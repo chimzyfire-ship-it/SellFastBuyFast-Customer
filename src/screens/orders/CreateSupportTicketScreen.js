@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   ScrollView,
   TextInput,
+  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,12 +19,13 @@ export default function CreateSupportTicketScreen() {
   const { createSupportTicket, orders } = useApp();
   const { currentRoute, goBack, navigate } = useNavigation();
 
-  const orderId = currentRoute.params?.orderId || 'ORD-2026-8891';
+  const orderId = currentRoute.params?.orderId;
   const order = orders.find((o) => o.id === orderId);
 
   const [category, setCategory] = useState('Delivery issue');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const CATEGORIES = [
     'Delivery issue',
@@ -33,10 +35,17 @@ export default function CreateSupportTicketScreen() {
     'Other questions',
   ];
 
-  const handleSubmit = () => {
-    if (!subject.trim() || !message.trim()) return;
-    const newTicket = createSupportTicket(orderId, subject, category, message);
-    navigate('support-ticket', { ticketId: newTicket.id });
+  const handleSubmit = async () => {
+    if (!subject.trim() || !message.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const newTicket = await createSupportTicket(orderId, subject.trim(), category, message.trim());
+      navigate('support-ticket', { ticketId: newTicket.id });
+    } catch {
+      // AppContext shows a recoverable error toast.
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -68,7 +77,7 @@ export default function CreateSupportTicketScreen() {
           </View>
           <View style={styles.orderTextCol}>
             <Text style={styles.orderKicker}>ATTACHED ORDER</Text>
-            <Text style={styles.orderIdText}>{orderId}</Text>
+            <Text style={styles.orderIdText}>{orderId || 'General support request'}</Text>
             {order?.merchantName && (
               <Text style={styles.merchantSub}>Merchant: {order.merchantName}</Text>
             )}
@@ -83,7 +92,7 @@ export default function CreateSupportTicketScreen() {
         <View style={styles.titleSection}>
           <Text style={styles.titleText}>How can we assist you?</Text>
           <Text style={styles.titleSub}>
-            Our concierge team will respond directly within minutes.
+            Send the details to our support team. Replies will appear in this ticket.
           </Text>
         </View>
 
@@ -139,16 +148,24 @@ export default function CreateSupportTicketScreen() {
         <TouchableOpacity
           style={[
             styles.submitBtn,
-            (!subject.trim() || !message.trim()) && styles.submitBtnDisabled,
+            (!subject.trim() || !message.trim() || isSubmitting) && styles.submitBtnDisabled,
           ]}
           activeOpacity={0.88}
           onPress={handleSubmit}
-          disabled={!subject.trim() || !message.trim()}
+          disabled={!subject.trim() || !message.trim() || isSubmitting}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !subject.trim() || !message.trim() || isSubmitting, busy: isSubmitting }}
         >
-          <Text style={styles.submitBtnText}>Submit Support Ticket</Text>
-          <View style={styles.btnIconBadge}>
-            <Ionicons name="arrow-forward" size={13} color="#0F382C" />
-          </View>
+          {isSubmitting ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <>
+              <Text style={styles.submitBtnText}>Submit Support Ticket</Text>
+              <View style={styles.btnIconBadge}>
+                <Ionicons name="arrow-forward" size={13} color="#0F382C" />
+              </View>
+            </>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

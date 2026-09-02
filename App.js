@@ -80,6 +80,7 @@ import CancelOrderScreen from './src/screens/orders/CancelOrderScreen';
 import RefundStatusScreen from './src/screens/orders/RefundStatusScreen';
 import CreateSupportTicketScreen from './src/screens/orders/CreateSupportTicketScreen';
 import SupportTicketScreen from './src/screens/orders/SupportTicketScreen';
+import CreateDisputeScreen from './src/screens/orders/CreateDisputeScreen';
 
 function AppContent() {
   const { currentRoute, navigate } = useNavigation();
@@ -91,7 +92,7 @@ function AppContent() {
     if (['home'].includes(currentRoute.name)) setActiveTab('home');
     else if (['search', 'category'].includes(currentRoute.name)) setActiveTab('search');
     else if (['bag', 'checkout-address', 'checkout-delivery', 'checkout-review'].includes(currentRoute.name)) setActiveTab('cart');
-    else if (['orders-list', 'orders', 'order-detail', 'order-tracking', 'return-request', 'order-return', 'return-status', 'order-cancel', 'refund-status', 'create-ticket', 'support-ticket'].includes(currentRoute.name)) setActiveTab('orders');
+    else if (['orders-list', 'orders', 'order-detail', 'order-tracking', 'return-request', 'order-return', 'return-status', 'order-cancel', 'refund-status', 'create-ticket', 'support-ticket', 'create-dispute'].includes(currentRoute.name)) setActiveTab('orders');
     else if (['account', 'account-addresses', 'account-notifications', 'account-privacy', 'account-saved', 'saved'].includes(currentRoute.name)) setActiveTab('account');
   }, [currentRoute.name]);
 
@@ -182,6 +183,8 @@ function AppContent() {
         return <CreateSupportTicketScreen />;
       case 'support-ticket':
         return <SupportTicketScreen />;
+      case 'create-dispute':
+        return <CreateDisputeScreen />;
 
       // Account Routes
       case 'account':

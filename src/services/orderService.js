@@ -26,6 +26,11 @@ export function formatOrder(order) {
     totalAmount: Number(order.totalAmountMinor) / 100,
     deliveryFee: Number(order.deliveryFeeMinor) / 100,
     trackingNumber: order.trackingCode,
+    carrierName: order.shipment?.carrier,
+    shipmentStatus: order.shipment?.status,
+    deliveredAt: order.shipment?.deliveredAt,
+    statusEvents: order.statusEvents || [],
+    shipmentEvents: order.shipmentEvents || [],
     items: lines.map((line) => ({
       id: line.variantId,
       name: line.productTitle,

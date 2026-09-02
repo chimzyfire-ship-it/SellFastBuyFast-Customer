@@ -2,7 +2,29 @@
 
 Created: 2026-09-01
 
-## Stop Point
+## Continuation Update
+
+Work resumed from this handoff on 2026-09-01. The user explicitly decided that all real payment/provider behavior must remain mock/deferred and be completed later as a dedicated module.
+
+New implementation since the original stop point:
+
+- `PAYMENT_MODE=mock` and `EXPO_PUBLIC_PAYMENT_MODE=mock` are the documented defaults.
+- Paystack is considered configured only when server payment mode is explicitly `paystack` and a secret key exists.
+- In mock mode, Core API checkout fails before order creation, payment-attempt creation, or inventory reservation.
+- The shopper payment modal explains the deferred boundary and cannot contact Paystack in mock mode.
+- Added authenticated `/v1/customer-care` routes for ticket threads, returns, and disputes.
+- Added authenticated `/v1/notifications` routes for listing and read state.
+- Added persisted `support_ticket_messages`, ticket categories, query indexes, and one-open-return-per-order protection to the unapplied hardening migration.
+- Shopper support, return, refund-status, notification, and shipment screens no longer fabricate agent replies, courier milestones, payment references, or completed refunds.
+- Order detail API now returns shipment and shipment-event data.
+- Added `/v1/catalog-management` merchant product creation, inventory, submission, audit, and staff moderation routes.
+- Replaced the vendor prototype with an authenticated API-backed portal for catalogue/stock, product submission, fulfilment, returns, merchant profile, verification, and team roster. The browser uses Supabase only for authentication; all business data uses Core API routes.
+- Added `/v1/vendor` workspace, profile, verification, returns, and team read routes. Merchant owner authorization is scoped to the specific merchant, not a global role.
+- Core API build/type-check passes, 14 focused tests pass, Expo Doctor passes 18/18, Expo web export passes, and `git diff --check` passes.
+
+Remote migrations and deployments are still intentionally untouched.
+
+## Original Stop Point
 
 The user explicitly asked to stop all work at this point and continue in a later session. Do not resume repository investigation, apply a migration, deploy anything, change Paystack settings, or run additional installs until the next session intentionally resumes work.
 
@@ -26,6 +48,7 @@ Important user preferences:
 - Do not force-upgrade Expo merely to silence an audit.
 - Do not undo or discard existing uncommitted work.
 - Do not expose or commit credentials.
+- Keep all live payment, Paystack, payout-transfer, and refund-provider work deferred as one dedicated future module.
 
 ## Environment Observed
 
@@ -88,9 +111,9 @@ Implemented under `services/core-api/src/modules/payments/`:
 - Server-side amount and currency validation before an order is marked paid.
 - Payment success records ledger entries and transitions stock/order state atomically.
 
-Important incomplete payment behavior:
+Important deferred payment behavior:
 
-- A paid cancellation or late payment can create a `refund.requested` outbox event, but no Paystack refund processor/API route has been implemented yet. Do not present refunds as fully operational.
+- Existing Paystack/payment code is dormant under mock mode. A paid cancellation or late payment can create a `refund.requested` outbox event only after real payments are deliberately re-enabled later; no Paystack refund processor/API route has been implemented. Do not present refunds as operational.
 
 ### Ledger, Fulfilment, And Payouts
 
@@ -159,7 +182,7 @@ Mock behavior:
 - `README.md` now describes the Express Core API, Supabase, and hosted Paystack flow.
 - `overall progress.md` was updated with implementation status.
 - Unsupported user-facing claims about escrow/guarantees were removed from edited shopper and vendor copy.
-- `vendor-portal/index.html` wording was updated, but the portal itself is still a prototype.
+- `vendor-portal/` is now an authenticated Core-API portal. It requires a local ignored `config.js` copied from `config.example.js`; it has no hardcoded Supabase configuration or direct table access.
 
 ## Work Not Yet Implemented
 
@@ -168,12 +191,12 @@ These are real gaps, not merely optional polish:
 1. No remote migration has been applied or validated.
 2. No deployed API or separately running production worker exists from this session.
 3. No real Supabase/Paystack end-to-end test has been performed.
-4. `admin-portal/` and `vendor-portal/` are still static direct-Supabase prototypes. Their JavaScript includes hardcoded public client configuration and they do not use the authenticated Core API for production mutations.
+4. `admin-portal/` is still a static direct-Supabase prototype. The vendor portal is now API-backed; it still needs a real Supabase/API environment and remote migration before it can be exercised end-to-end.
 5. `apps/shopper-mobile/` remains a stale duplicate Expo app.
-6. Return, refund, dispute, support-ticket, and notification tables exist, but corresponding production API flows have not been built. Some related Expo screens remain local/prototype behavior.
+6. Return, dispute, support-ticket, and notification customer flows now have authenticated Core API routes. Staff-side case resolution, return logistics, and the dedicated payment/refund module remain incomplete.
 7. Refund outbox delivery to Paystack is not implemented.
 8. Merchant bank recipient creation/verification is not implemented.
-9. Merchant product-management/moderation portal routes are not implemented.
+9. The vendor portal consumes merchant catalogue-management and fulfilment routes. The admin portal still does not consume the moderation routes.
 10. Worker behavior has not been exercised against a real database or Paystack sandbox.
 11. There are only focused unit tests; there are no database integration, migration, webhook, or device checkout E2E tests.
 
@@ -195,7 +218,7 @@ Results:
 
 - Core API build passed.
 - Core API `lint` passed. It currently runs `tsc --noEmit`; it is not an ESLint run.
-- Core API unit tests passed: 7 tests.
+- Core API unit tests originally passed: 7 tests. The continuation now passes 10 focused tests.
 - Core API production dependency audit reported 0 vulnerabilities.
 - Expo Doctor passed 18/18 checks.
 - Expo web export passed.
@@ -230,6 +253,7 @@ DATABASE_DIRECT_URL
 SUPABASE_URL
 SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
+PAYMENT_MODE
 PAYSTACK_SECRET_KEY
 PAYSTACK_PUBLIC_KEY
 PAYSTACK_CALLBACK_URL
@@ -252,6 +276,7 @@ EXPO_PUBLIC_SUPABASE_URL
 EXPO_PUBLIC_SUPABASE_ANON_KEY
 EXPO_PUBLIC_API_URL
 EXPO_PUBLIC_ENABLE_MOCKS
+EXPO_PUBLIC_PAYMENT_MODE
 ```
 
 Operational notes:
@@ -318,7 +343,7 @@ Create sandbox/staging data needed for a real checkout:
 
 After the core path is deployed and verified, tackle one focused slice at a time:
 
-1. Replace static vendor/admin portals with authenticated applications that call only Core API endpoints for mutations.
+1. Replace the static admin portal with an authenticated application that calls only Core API endpoints for mutations.
 2. Add production return/refund/dispute/support-ticket APIs and an actual refund processor.
 3. Add merchant bank recipient onboarding/verification.
 4. Archive or remove `apps/shopper-mobile/` after confirming the root Expo app is the only supported client.

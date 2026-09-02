@@ -509,11 +509,21 @@ export const supportTickets = pgTable('support_tickets', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => profiles.id, { onDelete: 'cascade' }).notNull(),
   orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+  category: text('category').default('general').notNull(),
   subject: text('subject').notNull(),
   body: text('body'),
   status: ticketStatusEnum('status').default('open').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const supportTicketMessages = pgTable('support_ticket_messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ticketId: uuid('ticket_id').references(() => supportTickets.id, { onDelete: 'cascade' }).notNull(),
+  senderId: uuid('sender_id').references(() => profiles.id, { onDelete: 'restrict' }).notNull(),
+  senderRole: text('sender_role').default('user').notNull(),
+  body: text('body').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 });
 
 // 9. Refunds

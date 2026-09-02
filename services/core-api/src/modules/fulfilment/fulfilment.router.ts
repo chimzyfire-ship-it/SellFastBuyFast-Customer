@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
+  orderLines,
   orders,
+  notifications,
   outboxEvents,
   returnRequests,
   shipmentEvents,
@@ -51,7 +53,23 @@ fulfilmentRouter.get('/merchant/:merchantId/orders', requireAuth, async (req: Re
       .where(eq(orders.merchantId, req.params.merchantId))
       .orderBy(desc(orders.createdAt))
       .limit(100);
-    res.json({ success: true, data: list });
+    if (list.length === 0) {
+      res.json({ success: true, data: [] });
+      return;
+    }
+    const orderIds = list.map((order) => order.id);
+    const [lines, shipmentRows] = await Promise.all([
+      db.select().from(orderLines).where(inArray(orderLines.orderId, orderIds)),
+      db.select().from(shipments).where(inArray(shipments.orderId, orderIds)),
+    ]);
+    res.json({
+      success: true,
+      data: list.map((order) => ({
+        ...order,
+        lines: lines.filter((line) => line.orderId === order.id),
+        shipment: shipmentRows.find((shipment) => shipment.orderId === order.id) ?? null,
+      })),
+    });
   } catch (err) {
     sendError(res, err);
   }
@@ -89,6 +107,13 @@ fulfilmentRouter.post(
           note: 'Order accepted by merchant',
         });
         await tx.insert(outboxEvents).values({ type: 'order.accepted', payload: { orderId: order.id } });
+        await tx.insert(notifications).values({
+          userId: order.buyerId,
+          type: 'order_accepted',
+          title: 'Order accepted',
+          body: 'The merchant has accepted your order and is preparing it.',
+          data: { orderId: order.id },
+        });
         return { orderId: order.id, status: 'processing', shipmentId: shipment.id };
       });
       res.json({ success: true, data: result });
@@ -162,6 +187,13 @@ fulfilmentRouter.post(
         await transitionOrder(tx, order.id, 'in_transit', req.user!.id, 'Shipment handed to carrier');
         await tx.update(orders).set({ trackingCode: parsed.data.trackingCode }).where(eq(orders.id, order.id));
         await tx.insert(outboxEvents).values({ type: 'order.shipped', payload: { orderId: order.id, shipmentId: shipment.id } });
+        await tx.insert(notifications).values({
+          userId: order.buyerId,
+          type: 'order_shipped',
+          title: 'Order shipped',
+          body: `Your order is in transit with ${parsed.data.carrier}.`,
+          data: { orderId: order.id, shipmentId: shipment.id, trackingCode: parsed.data.trackingCode },
+        });
         return { orderId: order.id, status: 'in_transit', trackingCode: parsed.data.trackingCode };
       });
       res.json({ success: true, data: result });
@@ -198,6 +230,13 @@ fulfilmentRouter.post(
         await tx.insert(outboxEvents).values({
           type: 'order.delivered',
           payload: { orderId: order.id, returnWindowEndsAt: new Date(now.getTime() + config.fulfilment.returnWindowDays * 86_400_000) },
+        });
+        await tx.insert(notifications).values({
+          userId: order.buyerId,
+          type: 'order_delivered',
+          title: 'Order delivered',
+          body: 'Delivery evidence has been recorded. Your return window is now open.',
+          data: { orderId: order.id },
         });
         return { orderId: order.id, status: 'delivered', deliveredAt: now };
       });
@@ -249,6 +288,13 @@ fulfilmentRouter.post(
         );
         await transitionOrder(tx, order.id, 'completed', req.user!.id, 'Return window elapsed; merchant funds released');
         await tx.insert(outboxEvents).values({ type: 'order.completed', payload: { orderId: order.id } });
+        await tx.insert(notifications).values({
+          userId: order.buyerId,
+          type: 'order_completed',
+          title: 'Order complete',
+          body: 'The return window has elapsed and the order is complete.',
+          data: { orderId: order.id },
+        });
         return { orderId: order.id, status: 'completed', releasedAmountMinor: merchantShare };
       });
       res.json({ success: true, data: result });

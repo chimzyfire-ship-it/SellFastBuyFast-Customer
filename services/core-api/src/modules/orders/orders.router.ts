@@ -17,9 +17,11 @@ import {
   merchants,
   deliveryZones,
   outboxEvents,
+  shipmentEvents,
+  shipments,
 } from '../../db/schema.js';
 import { config } from '../../lib/config.js';
-import { errors, sendError } from '../../lib/errors.js';
+import { AppError, errors, sendError } from '../../lib/errors.js';
 import { PaystackClient } from '../../lib/paystack.js';
 import { transitionOrder } from './orderStateMachine.js';
 
@@ -78,6 +80,13 @@ ordersRouter.post(
   idempotency('checkout'),
   async (req: Request, res: Response) => {
     try {
+      if (config.paymentMode !== 'paystack') {
+        throw new AppError(
+          'PAYMENT_MODULE_DEFERRED',
+          'Checkout is unavailable while the payment module is in mock mode.',
+          503
+        );
+      }
       const parseResult = CheckoutSchema.safeParse(req.body);
       if (!parseResult.success) {
         throw errors.validation(parseResult.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
@@ -307,7 +316,14 @@ ordersRouter.get('/:id', requireAuth, async (req: Request, res: Response) => {
       .where(eq(orderStatusEvents.orderId, order.id))
       .orderBy(asc(orderStatusEvents.createdAt));
 
-    res.json({ success: true, data: { ...order, lines, statusEvents: events } });
+    const [shipment] = await db.select().from(shipments).where(eq(shipments.orderId, order.id)).limit(1);
+    const logisticsEvents = shipment
+      ? await db.select().from(shipmentEvents)
+          .where(eq(shipmentEvents.shipmentId, shipment.id))
+          .orderBy(asc(shipmentEvents.occurredAt))
+      : [];
+
+    res.json({ success: true, data: { ...order, lines, statusEvents: events, shipment, shipmentEvents: logisticsEvents } });
   } catch (err) {
     sendError(res, err);
   }

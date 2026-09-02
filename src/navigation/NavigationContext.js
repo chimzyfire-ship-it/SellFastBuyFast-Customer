@@ -25,6 +25,7 @@ const PROTECTED_ROUTES = [
   'return-status',
   'create-ticket',
   'support-ticket',
+  'create-dispute',
   'refund-status',
 ];
 
