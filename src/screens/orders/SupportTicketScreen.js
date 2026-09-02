@@ -8,6 +8,7 @@ import {
   TextInput,
   SafeAreaView,
   KeyboardAvoidingView,
+  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,39 +17,26 @@ import { useApp } from '../../context/AppContext';
 import { useNavigation } from '../../navigation/NavigationContext';
 
 export default function SupportTicketScreen() {
-  const { tickets, addMessageToTicket } = useApp();
+  const { tickets, addMessageToTicket, isLoadingCustomerCare, refreshCustomerCare } = useApp();
   const { currentRoute, goBack } = useNavigation();
 
-  const ticketId = currentRoute.params?.ticketId || 'TCK-4402';
-  const ticket = tickets.find((t) => t.id === ticketId) || tickets[0] || {
-    id: ticketId,
-    subject: 'Delivery Timeline Inquiry',
-    category: 'Delivery issue',
-    orderId: 'ORD-2026-8891',
-    status: 'Open',
-    messages: [
-      {
-        id: 'msg_1',
-        sender: 'user',
-        text: 'Hello, could you please confirm when the courier will arrive at Victoria Island?',
-        time: '10:30 AM',
-      },
-      {
-        id: 'msg_2',
-        sender: 'agent',
-        agentName: 'Aria • VIP Concierge',
-        text: 'Hello Amina! Your order is currently with GIG Logistics and scheduled for doorstep delivery before 5:00 PM today.',
-        time: '10:34 AM',
-      },
-    ],
-  };
+  const ticketId = currentRoute.params?.ticketId;
+  const ticket = tickets.find((t) => t.id === ticketId);
 
   const [input, setInput] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    addMessageToTicket(ticket.id, input);
-    setInput('');
+  const handleSend = async () => {
+    if (!ticket || !input.trim() || isSending) return;
+    setIsSending(true);
+    try {
+      await addMessageToTicket(ticket.id, input.trim());
+      setInput('');
+    } catch {
+      // AppContext shows a recoverable error toast and preserves the draft.
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -65,12 +53,12 @@ export default function SupportTicketScreen() {
         </TouchableOpacity>
 
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Ticket #{ticket.id}</Text>
-          <Text style={styles.headerSub}>Order #{ticket.orderId}</Text>
+          <Text style={styles.headerTitle}>{ticket ? `Ticket #${ticket.id}` : 'Support Ticket'}</Text>
+          <Text style={styles.headerSub}>{ticket?.orderId ? `Order #${ticket.orderId}` : 'Customer Support'}</Text>
         </View>
 
         <View style={styles.statusPill}>
-          <Text style={styles.statusPillText}>{ticket.status || 'Open'}</Text>
+          <Text style={styles.statusPillText}>{ticket?.status || 'Unavailable'}</Text>
         </View>
       </View>
 
@@ -83,7 +71,7 @@ export default function SupportTicketScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* Ticket Topic Card */}
-          <View style={styles.topicCard}>
+          {ticket ? <View style={styles.topicCard}>
             <View style={styles.topicHeader}>
               <View style={styles.topicIconWrap}>
                 <Ionicons name="chatbubbles-outline" size={16} color="#0F382C" />
@@ -93,11 +81,28 @@ export default function SupportTicketScreen() {
                 <Text style={styles.topicSubject}>{ticket.subject}</Text>
               </View>
             </View>
-          </View>
+          </View> : isLoadingCustomerCare ? (
+            <View style={styles.topicCard}>
+              <ActivityIndicator color={COLORS.emeraldPrimary} />
+              <Text style={styles.headerSub}>Loading ticket…</Text>
+            </View>
+          ) : (
+            <View style={styles.topicCard}>
+              <Text style={styles.topicSubject}>Ticket unavailable</Text>
+              <Text style={styles.headerSub}>Refresh your account data or return to the previous screen.</Text>
+              <TouchableOpacity
+                style={styles.ticketRefreshButton}
+                onPress={() => refreshCustomerCare().catch(() => {})}
+                accessibilityRole="button"
+              >
+                <Text style={styles.ticketRefreshText}>Refresh</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Conversation Thread */}
           <View style={styles.threadList}>
-            {ticket.messages?.map((m) => {
+            {ticket?.messages?.map((m) => {
               const isUser = m.sender === 'user';
               return (
                 <View
@@ -152,12 +157,17 @@ export default function SupportTicketScreen() {
             multiline
           />
           <TouchableOpacity
-            style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, (!input.trim() || isSending) && styles.sendBtnDisabled]}
             activeOpacity={0.85}
             onPress={handleSend}
-            disabled={!input.trim()}
+            disabled={!ticket || !input.trim() || isSending}
+            accessibilityRole="button"
+            accessibilityLabel="Send support message"
+            accessibilityState={{ disabled: !ticket || !input.trim() || isSending, busy: isSending }}
           >
-            <Ionicons name="arrow-up" size={18} color="#FFFFFF" />
+            {isSending
+              ? <ActivityIndicator size="small" color="#FFFFFF" />
+              : <Ionicons name="arrow-up" size={18} color="#FFFFFF" />}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -237,6 +247,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
+  },
+  ticketRefreshButton: {
+    minHeight: 44,
+    paddingHorizontal: 20,
+    borderRadius: 22,
+    backgroundColor: COLORS.emeraldPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+  },
+  ticketRefreshText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
   topicIconWrap: {
     width: 32,

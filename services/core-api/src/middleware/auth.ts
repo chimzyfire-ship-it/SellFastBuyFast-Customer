@@ -10,6 +10,7 @@ export interface AuthenticatedUser {
   email: string;
   roles: string[];
   merchantIds: string[];
+  merchantRoles: Record<string, string>;
 }
 
 declare global {
@@ -67,6 +68,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       email: user.email ?? '',
       roles: Array.from(granted),
       merchantIds: memberships.map((m) => m.merchantId),
+      merchantRoles: Object.fromEntries(memberships.map((m) => [m.merchantId, m.role])),
     };
 
     next();

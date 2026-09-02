@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   ScrollView,
   TextInput,
+  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,19 +16,26 @@ import { useApp } from '../../context/AppContext';
 import { useNavigation } from '../../navigation/NavigationContext';
 
 export default function ReturnRequestScreen() {
-  const { showToast } = useApp();
+  const { createReturnRequest } = useApp();
   const { currentRoute, goBack, navigate } = useNavigation();
 
-  const orderId = currentRoute.params?.orderId || 'ORD-2026-7740';
+  const orderId = currentRoute.params?.orderId;
 
   const [reason, setReason] = useState('Damaged or defective item');
-  const [refundMethod, setRefundMethod] = useState('original');
   const [description, setDescription] = useState('');
-  const [evidenceUploaded, setEvidenceUploaded] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmitReturn = () => {
-    showToast('Return request submitted for merchant review');
-    navigate('return-status', { returnId: 'RET-8812', orderId });
+  const handleSubmitReturn = async () => {
+    if (!orderId || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const request = await createReturnRequest(orderId, reason, description);
+      navigate('return-status', { returnId: request.id, orderId });
+    } catch {
+      // AppContext shows a recoverable error toast.
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -41,7 +49,7 @@ export default function ReturnRequestScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.sectionTitle}>Request Return for Order #{orderId}</Text>
+        <Text style={styles.sectionTitle}>{orderId ? `Request Return for Order #${orderId}` : 'Select an order to request a return'}</Text>
         <Text style={styles.subTitle}>
           Items eligible within 7 days of delivery under SellFastBuyFast Buyer Protection Policy.
         </Text>
@@ -65,46 +73,32 @@ export default function ReturnRequestScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardLabel}>Photo / Video Evidence</Text>
-          <TouchableOpacity
-            style={styles.uploadBox}
-            onPress={() => {
-              setEvidenceUploaded(true);
-              showToast('Photo evidence attached');
-            }}
-          >
-            <Ionicons
-              name={evidenceUploaded ? 'checkmark-circle' : 'camera-outline'}
-              size={28}
-              color={evidenceUploaded ? COLORS.successGreen : COLORS.emeraldPrimary}
-            />
-            <Text style={styles.uploadText}>
-              {evidenceUploaded ? '1 Image Evidence Uploaded (IMG_008.jpg)' : 'Upload clear photos of defect/packaging'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Refund Destination</Text>
-          <TouchableOpacity
-            style={[styles.radioRow, refundMethod === 'original' && styles.radioRowActive]}
-            onPress={() => setRefundMethod('original')}
-          >
-            <Ionicons
-              name={refundMethod === 'original' ? 'radio-button-on' : 'radio-button-off'}
-              size={18}
-              color={refundMethod === 'original' ? COLORS.emeraldPrimary : COLORS.textMuted}
-            />
-            <Text style={styles.radioText}>Paystack Refund to Original Card / Bank</Text>
-          </TouchableOpacity>
+          <Text style={styles.cardLabel}>What happened?</Text>
+          <TextInput
+            style={styles.descriptionInput}
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            maxLength={900}
+            placeholder="Add details that will help the merchant and support team review your request."
+            placeholderTextColor={COLORS.textMuted}
+          />
+          <Text style={styles.paymentBoundaryText}>
+            Any payment adjustment is reviewed separately after the returned item is inspected.
+          </Text>
         </View>
 
         <TouchableOpacity
           style={styles.submitBtn}
           activeOpacity={0.85}
           onPress={handleSubmitReturn}
+          disabled={!orderId || isSubmitting}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !orderId || isSubmitting, busy: isSubmitting }}
         >
-          <Text style={styles.submitText}>Submit Return Request</Text>
+          {isSubmitting
+            ? <ActivityIndicator color={COLORS.white} />
+            : <Text style={styles.submitText}>Submit Return Request</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -195,6 +189,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textSecondary,
     textAlign: 'center',
+  },
+  descriptionInput: {
+    minHeight: 110,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 12,
+    color: COLORS.textPrimary,
+    textAlignVertical: 'top',
+    fontSize: 13.5,
+  },
+  paymentBoundaryText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 10,
   },
   submitBtn: {
     backgroundColor: COLORS.emeraldPrimary,

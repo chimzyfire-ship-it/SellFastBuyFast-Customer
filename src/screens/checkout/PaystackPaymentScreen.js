@@ -15,6 +15,7 @@ import { useNavigation } from '../../navigation/NavigationContext';
 import { createCheckout, initializePayment, redirectUrl } from '../../services/checkoutService';
 
 WebBrowser.maybeCompleteAuthSession();
+const PAYMENTS_DEFERRED = process.env.EXPO_PUBLIC_PAYMENT_MODE !== 'paystack';
 
 export default function PaystackPaymentScreen() {
   const { user, cart, addresses, selectedAddressId } = useApp();
@@ -47,6 +48,10 @@ export default function PaystackPaymentScreen() {
 
   const startPayment = async () => {
     if (busy) return;
+    if (PAYMENTS_DEFERRED) {
+      setError('Live payment is intentionally disabled. It will be completed as a separate integration module.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -82,7 +87,7 @@ export default function PaystackPaymentScreen() {
           <TouchableOpacity style={styles.closeButton} onPress={closeModal} disabled={busy}>
             <Ionicons name="close" size={22} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Secure Paystack Checkout</Text>
+          <Text style={styles.headerTitle}>{PAYMENTS_DEFERRED ? 'Payment Demo' : 'Secure Paystack Checkout'}</Text>
           <View style={styles.lockBadge}>
             <Ionicons name="lock-closed" size={14} color="#C69B56" />
           </View>
@@ -100,9 +105,11 @@ export default function PaystackPaymentScreen() {
               <Ionicons name="open-outline" size={24} color="#0F382C" />
             </View>
             <View style={styles.providerCopy}>
-              <Text style={styles.providerTitle}>Payment opens on Paystack</Text>
+              <Text style={styles.providerTitle}>{PAYMENTS_DEFERRED ? 'Live payment is deferred' : 'Payment opens on Paystack'}</Text>
               <Text style={styles.providerText}>
-                Card, bank transfer, and USSD details are entered only on Paystack's hosted page. SellFastBuyFast never receives your card number or PIN.
+                {PAYMENTS_DEFERRED
+                  ? 'This build does not collect payment details, create a paid order, or contact a payment provider.'
+                  : "Card, bank transfer, and USSD details are entered only on Paystack's hosted page. SellFastBuyFast never receives your card number or PIN."}
               </Text>
             </View>
           </View>
@@ -110,7 +117,9 @@ export default function PaystackPaymentScreen() {
           <View style={styles.noteCard}>
             <Ionicons name="calculator-outline" size={18} color="#B58105" />
             <Text style={styles.noteText}>
-              The server validates stock, delivery fee, and the final amount before creating the payment reference.
+              {PAYMENTS_DEFERRED
+                ? 'You can continue reviewing the rest of the marketplace while the payment module remains isolated.'
+                : 'The server validates stock, delivery fee, and the final amount before creating the payment reference.'}
             </Text>
           </View>
 
@@ -121,13 +130,21 @@ export default function PaystackPaymentScreen() {
             </View>
           )}
 
-          <TouchableOpacity style={[styles.payButton, busy && styles.disabled]} onPress={startPayment} disabled={busy}>
+          <TouchableOpacity
+            style={[styles.payButton, (busy || PAYMENTS_DEFERRED) && styles.disabled]}
+            onPress={startPayment}
+            disabled={busy || PAYMENTS_DEFERRED}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: busy || PAYMENTS_DEFERRED, busy }}
+          >
             {busy ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <>
                 <Ionicons name="shield-checkmark" size={19} color="#C69B56" />
-                <Text style={styles.payButtonText}>{pendingPayment ? 'Reopen Paystack' : 'Continue to Paystack'}</Text>
+                <Text style={styles.payButtonText}>
+                  {PAYMENTS_DEFERRED ? 'Payment Setup Deferred' : pendingPayment ? 'Reopen Paystack' : 'Continue to Paystack'}
+                </Text>
                 <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
               </>
             )}

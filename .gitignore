@@ -19,6 +19,7 @@ __pycache__/
 .env.production
 .env.staging
 supabase/.temp/
+vendor-portal/config.js
 
 # OS files
 .DS_Store

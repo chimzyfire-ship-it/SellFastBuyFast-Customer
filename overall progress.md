@@ -17,6 +17,10 @@
 | 2026-08-22 | Rebranded maintained documentation to SellFastBuyFast, refreshed implementation status, strengthened financial/security controls, and prepared a new professionally named PDF set. | Complete |
 | 2026-08-28 | Documented backend/database/infra strategy (Supabase PostgreSQL + Railway modular backend), synced Customer codebase to GitHub, and renamed ecosystem repos to SellFastBuyFast-Customer, SellFastBuyFast-Admin, and SellFastBuyFast-Vendor. | Complete |
 | 2026-09-01 | Added Core API transactional checkout, Paystack initialization/verification/webhooks, inventory reservation expiry, role checks, ledger-backed payouts, fulfilment transitions, migrations, and Expo hosted-checkout integration. | Complete |
+| 2026-09-01 | Deferred all live payment behavior behind explicit mock/paystack configuration switches; mock mode rejects checkout before writes and never contacts Paystack. | Complete |
+| 2026-09-01 | Added authenticated Core API and shopper flows for support ticket threads, return requests with delivery-window enforcement, disputes, persisted notifications, and truthful shipment milestones. | Complete |
+| 2026-09-01 | Added authenticated merchant catalogue creation, inventory control, submission, audit logging, and staff moderation APIs. | Complete |
+| 2026-09-02 | Replaced the vendor static mock with an authenticated Core-API portal for catalogue/stock, product submission, fulfilment, return decisions, business profile, verification, and team roster. Payment actions remain explicitly deferred. | Complete |
 
 ## Official Repositories
 
@@ -33,9 +37,9 @@
 ## Decisions captured
 
 - V1 is a curated Nigeria-first marketplace.
-- Checkout is limited to a single merchant and Paystack.
+- Checkout remains limited to a single merchant, but live payment is deferred as a dedicated module; the current default is safe mock mode.
 - Financial state changes are server-controlled and ledger-backed.
-- The shopper app and static merchant/operations portal prototypes are represented in the codebase. The Core API now implements the primary transactional path; production merchant/operations portal delivery remains separate.
+- The shopper app and an authenticated merchant portal are represented in the codebase. The operations portal remains a separate delivery item.
 
 ## Completion check
 

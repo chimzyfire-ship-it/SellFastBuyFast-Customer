@@ -14,7 +14,7 @@ import { useNavigation } from '../../navigation/NavigationContext';
 export default function RefundStatusScreen() {
   const { currentRoute, goBack, navigate } = useNavigation();
 
-  const refundId = currentRoute.params?.refundId || 'RFD-9901';
+  const refundId = currentRoute.params?.refundId;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -22,7 +22,7 @@ export default function RefundStatusScreen() {
         <TouchableOpacity style={styles.backButton} onPress={goBack}>
           <Ionicons name="arrow-back" size={22} color={COLORS.emeraldPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Refund #{refundId}</Text>
+        <Text style={styles.headerTitle}>{refundId ? `Refund #${refundId}` : 'Payment Adjustments'}</Text>
         <View style={{ width: 22 }} />
       </View>
 
@@ -31,24 +31,15 @@ export default function RefundStatusScreen() {
           <View style={styles.iconCircle}>
             <Ionicons name="wallet-outline" size={32} color={COLORS.goldAccent} />
           </View>
-          <Text style={styles.amountText}>₦ 89,500</Text>
-          <Text style={styles.statusLabel}>Refund Status: Completed & Credited</Text>
+          <Text style={styles.amountText}>Not enabled</Text>
+          <Text style={styles.statusLabel}>Payment adjustments are intentionally deferred</Text>
         </View>
 
         <View style={styles.detailsCard}>
-          <Text style={styles.cardTitle}>Paystack Settlement Summary</Text>
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Original Paystack Reference</Text>
-            <Text style={styles.rowVal}>PSTK-774011-NG</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Refund Channel</Text>
-            <Text style={styles.rowVal}>Original Card / Bank Account</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Bank Settlement Timeline</Text>
-            <Text style={styles.rowVal}>1 - 3 Business Days</Text>
-          </View>
+          <Text style={styles.cardTitle}>Current Build Boundary</Text>
+          <Text style={styles.rowLabel}>
+            No provider request, refund reference, settlement amount, or completion date is fabricated in this build. Those records will appear only after the dedicated payment module is implemented and tested.
+          </Text>
         </View>
 
         <TouchableOpacity style={styles.btn} onPress={() => navigate('orders')}>

@@ -3,6 +3,17 @@ import { PRODUCTS, CATEGORIES } from '../data/mockData';
 import { supabase } from '../lib/supabase';
 import { fetchLiveCategories, fetchLiveProducts } from '../services/catalogService';
 import { cancelOrder as cancelOrderRequest, listOrders } from '../services/orderService';
+import {
+  addSupportTicketMessage,
+  createDispute as createDisputeApi,
+  createReturnRequest as createReturnRequestApi,
+  createSupportTicket as createSupportTicketApi,
+  listNotifications,
+  listDisputes,
+  listReturnRequests,
+  listSupportTickets,
+  markNotificationRead as markNotificationReadApi,
+} from '../services/customerCareService';
 
 const AppContext = createContext();
 const MOCKS_ENABLED = process.env.EXPO_PUBLIC_ENABLE_MOCKS === 'true';
@@ -80,53 +91,13 @@ export const AppProvider = ({ children }) => {
   const [orders, setOrders] = useState([]);
 
   // Support Tickets State
-  const [tickets, setTickets] = useState([
-    {
-      id: 'TCK-4402',
-      orderId: 'ORD-2026-8891',
-      subject: 'Inquire about delivery timeline',
-      category: 'Delivery issue',
-      status: 'In Progress', // 'Open' | 'In Progress' | 'Resolved'
-      createdAt: '2026-08-09T09:00:00Z',
-      messages: [
-        {
-          id: 'm1',
-          sender: 'user',
-          text: 'Hello, please can I confirm if the GIG Logistics courier will call before delivery?',
-          time: '09:00 AM',
-        },
-        {
-          id: 'm2',
-          sender: 'agent',
-          agentName: 'Chidi (SellFastBuyFast Care)',
-          text: 'Hi Amina! Yes, the courier driver will call your registered phone number (+234 803 *** 4567) 30 minutes prior to delivery.',
-          time: '09:18 AM',
-        },
-      ],
-    },
-  ]);
+  const [tickets, setTickets] = useState([]);
+  const [returnRequests, setReturnRequests] = useState([]);
+  const [disputes, setDisputes] = useState([]);
+  const [isLoadingCustomerCare, setIsLoadingCustomerCare] = useState(false);
 
   // Notifications State
-  const [notifications, setNotifications] = useState([
-    {
-      id: 'notif_1',
-      title: 'Package Shipped! 🚚',
-      body: 'Your Smart Watch Series 9 order ORD-2026-8891 has been dispatched with GIG Logistics.',
-      time: '2 hours ago',
-      read: false,
-      targetRoute: 'order-detail',
-      targetParams: { orderId: 'ORD-2026-8891' },
-    },
-    {
-      id: 'notif_2',
-      title: 'Welcome to SellFastBuyFast',
-      body: 'Enjoy authentic curated Nigerian craftsmanship & pay securely with Paystack.',
-      time: '3 days ago',
-      read: true,
-      targetRoute: 'home',
-      targetParams: {},
-    },
-  ]);
+  const [notifications, setNotifications] = useState([]);
 
   // Merchant Conflict Modal Trigger State
   const [pendingConflictProduct, setPendingConflictProduct] = useState(null);
@@ -165,6 +136,30 @@ export const AppProvider = ({ children }) => {
     return data;
   }, []);
 
+  const refreshCustomerCare = useCallback(async () => {
+    setIsLoadingCustomerCare(true);
+    try {
+      const [ticketResult, returnResult, disputeResult, notificationResult] = await Promise.allSettled([
+        listSupportTickets(),
+        listReturnRequests(),
+        listDisputes(),
+        listNotifications(),
+      ]);
+      if (ticketResult.status === 'fulfilled') setTickets(ticketResult.value);
+      if (returnResult.status === 'fulfilled') setReturnRequests(returnResult.value);
+      if (disputeResult.status === 'fulfilled') setDisputes(disputeResult.value);
+      if (notificationResult.status === 'fulfilled') setNotifications(notificationResult.value);
+      return {
+        tickets: ticketResult.status === 'fulfilled' ? ticketResult.value : [],
+        returns: returnResult.status === 'fulfilled' ? returnResult.value : [],
+        disputes: disputeResult.status === 'fulfilled' ? disputeResult.value : [],
+        notifications: notificationResult.status === 'fulfilled' ? notificationResult.value : [],
+      };
+    } finally {
+      setIsLoadingCustomerCare(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadCatalogueData();
 
@@ -173,6 +168,7 @@ export const AppProvider = ({ children }) => {
         setUser(mapAuthUser(session.user));
         setIsAuthenticated(true);
         void refreshOrders().catch(() => {});
+        void refreshCustomerCare().catch(() => {});
       } else {
         setUser(GUEST_USER);
         setIsAuthenticated(false);
@@ -186,17 +182,22 @@ export const AppProvider = ({ children }) => {
         setUser(mapAuthUser(session.user));
         setIsAuthenticated(true);
         void refreshOrders().catch(() => {});
+        void refreshCustomerCare().catch(() => {});
       } else {
         setUser(GUEST_USER);
         setIsAuthenticated(false);
         setOrders([]);
+        setTickets([]);
+        setReturnRequests([]);
+        setDisputes([]);
+        setNotifications([]);
       }
     });
 
     return () => {
       subscription?.unsubscribe();
     };
-  }, [loadCatalogueData, refreshOrders]);
+  }, [loadCatalogueData, refreshCustomerCare, refreshOrders]);
 
   // Auth Methods (Supabase Powered with Local Fallback)
   const signIn = async (emailOrPhone, password) => {
@@ -209,6 +210,7 @@ export const AppProvider = ({ children }) => {
       setUser(mapAuthUser(data.user));
       setIsAuthenticated(true);
       await refreshOrders().catch(() => []);
+      await refreshCustomerCare().catch(() => ({}));
       showToast('Signed in successfully');
       return { success: true };
     } catch (err) {
@@ -251,6 +253,10 @@ export const AppProvider = ({ children }) => {
     setUser(GUEST_USER);
     setIsAuthenticated(false);
     setOrders([]);
+    setTickets([]);
+    setReturnRequests([]);
+    setDisputes([]);
+    setNotifications([]);
     showToast('Signed out of account');
   };
 
@@ -386,72 +392,70 @@ export const AppProvider = ({ children }) => {
   };
 
   // Support Ticket creation & message response
-  const createSupportTicket = (orderId, subject, category, messageText) => {
-    const newTicket = {
-      id: 'TCK-' + Math.floor(1000 + Math.random() * 9000),
-      orderId,
-      subject,
-      category,
-      status: 'Open',
-      createdAt: new Date().toISOString(),
-      messages: [
-        {
-          id: 'msg_1',
-          sender: 'user',
-          text: messageText,
-          time: 'Just now',
-        },
-      ],
-    };
-    setTickets([newTicket, ...tickets]);
-    showToast('Support ticket created');
-    return newTicket;
+  const createSupportTicket = async (orderId, subject, category, messageText) => {
+    try {
+      const newTicket = await createSupportTicketApi({ orderId, subject, category, message: messageText });
+      setTickets((current) => [newTicket, ...current]);
+      showToast('Support ticket created');
+      return newTicket;
+    } catch (err) {
+      showToast(err.message || 'Unable to create support ticket');
+      throw err;
+    }
   };
 
-  const addMessageToTicket = (ticketId, text) => {
-    setTickets(
-      tickets.map((t) => {
-        if (t.id === ticketId) {
-          const newMsg = {
-            id: 'msg_' + Date.now(),
-            sender: 'user',
-            text,
-            time: 'Just now',
-          };
-          setTimeout(() => {
-            setTickets((prevTickets) =>
-              prevTickets.map((tInner) => {
-                if (tInner.id === ticketId) {
-                  return {
-                    ...tInner,
-                    messages: [
-                      ...tInner.messages,
-                      {
-                        id: 'msg_agent_' + Date.now(),
-                        sender: 'agent',
-                        agentName: 'Ayo (SellFastBuyFast Support)',
-                        text: 'Thank you for reaching out! We have received your update and are reviewing your order status with our partner merchant.',
-                        time: 'Just now',
-                      },
-                    ],
-                  };
-                }
-                return tInner;
-              })
-            );
-          }, 1500);
-
-          return { ...t, messages: [...t.messages, newMsg] };
-        }
-        return t;
-      })
-    );
+  const addMessageToTicket = async (ticketId, text) => {
+    try {
+      const newMessage = await addSupportTicketMessage(ticketId, text);
+      setTickets((current) => current.map((ticket) => (
+        ticket.id === ticketId
+          ? { ...ticket, status: 'Open', messages: [...ticket.messages, newMessage] }
+          : ticket
+      )));
+      return newMessage;
+    } catch (err) {
+      showToast(err.message || 'Unable to send message');
+      throw err;
+    }
   };
 
-  const markNotificationRead = (notifId) => {
-    setNotifications(
-      notifications.map((n) => (n.id === notifId ? { ...n, read: true } : n))
-    );
+  const createReturnRequest = async (orderId, reason, description) => {
+    try {
+      const request = await createReturnRequestApi({
+        orderId,
+        reason: [reason, description?.trim()].filter(Boolean).join(': '),
+      });
+      setReturnRequests((current) => [request, ...current]);
+      showToast('Return request submitted for review');
+      return request;
+    } catch (err) {
+      showToast(err.message || 'Unable to submit return request');
+      throw err;
+    }
+  };
+
+  const markNotificationRead = async (notifId) => {
+    setNotifications((current) => current.map((item) => (
+      item.id === notifId ? { ...item, read: true } : item
+    )));
+    try {
+      await markNotificationReadApi(notifId);
+    } catch {
+      void refreshCustomerCare().catch(() => {});
+    }
+  };
+
+  const createDispute = async (orderId, reason) => {
+    try {
+      const dispute = await createDisputeApi({ orderId, reason });
+      setDisputes((current) => [dispute, ...current]);
+      await refreshOrders().catch(() => []);
+      showToast('Dispute opened for marketplace review');
+      return dispute;
+    } catch (err) {
+      showToast(err.message || 'Unable to open dispute');
+      throw err;
+    }
   };
 
   return (
@@ -493,6 +497,12 @@ export const AppProvider = ({ children }) => {
         tickets,
         createSupportTicket,
         addMessageToTicket,
+        returnRequests,
+        createReturnRequest,
+        disputes,
+        createDispute,
+        refreshCustomerCare,
+        isLoadingCustomerCare,
         notifications,
         markNotificationRead,
         toastMessage,

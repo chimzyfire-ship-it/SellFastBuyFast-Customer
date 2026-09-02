@@ -19,6 +19,7 @@ function num(name: string, fallback: number): number {
 }
 
 export const isProduction = process.env.NODE_ENV === 'production';
+const paymentMode = process.env.PAYMENT_MODE === 'paystack' ? 'paystack' : 'mock';
 
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
@@ -31,6 +32,7 @@ export const config = {
 
   databaseUrl: value('DATABASE_URL'),
 
+  paymentMode,
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? '',
   paystackBaseUrl: process.env.PAYSTACK_BASE_URL ?? 'https://api.paystack.co',
 
@@ -55,7 +57,7 @@ export const config = {
   },
 };
 
-export const paystackConfigured = config.paystackSecretKey.length > 0;
+export const paystackConfigured = config.paymentMode === 'paystack' && config.paystackSecretKey.length > 0;
 
 export function validateRuntimeConfig(): void {
   const missing = [
@@ -63,6 +65,8 @@ export function validateRuntimeConfig(): void {
     ['SUPABASE_SERVICE_ROLE_KEY', config.supabaseServiceRoleKey],
     ['DATABASE_URL', config.databaseUrl],
   ].filter(([, configured]) => !configured).map(([name]) => name);
-  if (config.isProduction && !paystackConfigured) missing.push('PAYSTACK_SECRET_KEY');
+  if (config.isProduction && config.paymentMode === 'paystack' && !paystackConfigured) {
+    missing.push('PAYSTACK_SECRET_KEY');
+  }
   if (missing.length > 0) throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
 }

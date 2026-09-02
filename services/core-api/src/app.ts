@@ -7,6 +7,10 @@ import { ordersRouter } from './modules/orders/orders.router.js';
 import { paymentsRouter } from './modules/payments/payments.router.js';
 import { fulfilmentRouter } from './modules/fulfilment/fulfilment.router.js';
 import { payoutsRouter } from './modules/payouts/payouts.router.js';
+import { customerCareRouter } from './modules/customer-care/customerCare.router.js';
+import { notificationsRouter } from './modules/notifications/notifications.router.js';
+import { catalogManagementRouter } from './modules/catalog-management/catalogManagement.router.js';
+import { vendorRouter } from './modules/vendor/vendor.router.js';
 import { config } from './lib/config.js';
 import { sendError } from './lib/errors.js';
 import { rateLimit } from './middleware/rateLimit.js';
@@ -54,6 +58,10 @@ export function createApp(): Express {
   app.use('/v1/payments', paymentsRouter);
   app.use('/v1/fulfilment', fulfilmentRouter);
   app.use('/v1/payouts', payoutsRouter);
+  app.use('/v1/customer-care', customerCareRouter);
+  app.use('/v1/notifications', notificationsRouter);
+  app.use('/v1/catalog-management', catalogManagementRouter);
+  app.use('/v1/vendor', vendorRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Route not found.' } });

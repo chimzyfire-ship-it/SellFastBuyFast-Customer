@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -14,19 +14,25 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../theme/colors';
 import { useApp } from '../../context/AppContext';
 import { useNavigation } from '../../navigation/NavigationContext';
+import { getOrder } from '../../services/orderService';
 
 export default function OrderTrackingScreen() {
   const { orders, showToast } = useApp();
   const { currentRoute, goBack, navigate } = useNavigation();
 
-  const orderId = currentRoute.params?.orderId || 'ORD-2026-8891';
-  const order = orders.find((o) => o.id === orderId) || orders[0] || {
-    id: orderId,
-    trackingNumber: 'SL-NG-99824',
-    carrierName: 'GIG Logistics Express',
-    status: 'Shipped',
-    merchantName: 'SellFast Tech',
-  };
+  const orderId = currentRoute.params?.orderId;
+  const summary = orders.find((item) => item.id === orderId);
+  const [order, setOrder] = useState(summary);
+
+  useEffect(() => {
+    let active = true;
+    if (orderId) {
+      void getOrder(orderId).then((detail) => {
+        if (active) setOrder(detail);
+      }).catch(() => {});
+    }
+    return () => { active = false; };
+  }, [orderId]);
 
   // Active Radar Pulse Animation
   const pulseAnim = useRef(new Animated.Value(0)).current;
@@ -59,17 +65,34 @@ export default function OrderTrackingScreen() {
     outputRange: [0.8, 0.4, 0],
   });
 
+  const statusRank = {
+    pending_payment: 0,
+    payment_confirmed: 1,
+    processing: 2,
+    in_transit: 3,
+    delivered: 4,
+    completed: 5,
+  };
+  const currentRank = statusRank[order?.apiStatus] ?? -1;
+  const statusTime = (status) => {
+    const event = order?.statusEvents?.find((item) => item.toStatus === status);
+    return event ? new Date(event.createdAt).toLocaleString() : 'Pending';
+  };
   const STEPS = [
-    { title: 'Order Confirmed', sub: 'Paystack payment verified', done: true, time: '8 Aug, 02:30 PM', active: false },
-    { title: 'Merchant Accepted', sub: `${order.merchantName || 'SellFast Tech'} packed package`, done: true, time: '8 Aug, 04:15 PM', active: false },
-    { title: 'Handed to Carrier', sub: `${order.carrierName || 'GIG Logistics'} waybill allocated`, done: true, time: '9 Aug, 10:00 AM', active: false },
-    { title: 'In Transit to Hub', sub: 'Arrival at Lagos VI Distribution Facility', done: true, time: 'In Transit Now', active: true },
-    { title: 'Out for Delivery', sub: 'Doorstep courier dispatch driver assigned', done: order.status === 'Delivered', time: 'Estimated 3:30 PM', active: false },
-    { title: 'Delivered', sub: 'Recipient signature & package inspection', done: order.status === 'Delivered', time: 'Pending Delivery', active: false },
-  ];
+    { title: 'Order Created', sub: 'Order record created', status: 'pending_payment' },
+    { title: 'Ready for Fulfilment', sub: 'Order cleared for merchant action', status: 'payment_confirmed' },
+    { title: 'Merchant Accepted', sub: 'Merchant is preparing the order', status: 'processing' },
+    { title: 'Handed to Carrier', sub: order?.carrierName ? `Carrier: ${order.carrierName}` : 'Carrier details pending', status: 'in_transit' },
+    { title: 'Delivered', sub: 'Delivery evidence recorded', status: 'delivered' },
+  ].map((step) => ({
+    ...step,
+    done: currentRank >= statusRank[step.status],
+    active: currentRank === statusRank[step.status],
+    time: statusTime(step.status),
+  }));
 
   const handleCopyWaybill = () => {
-    showToast && showToast(`Waybill ${order.trackingNumber || 'SL-NG-99824'} copied`);
+    if (order?.trackingNumber) showToast && showToast(`Waybill ${order.trackingNumber} copied`);
   };
 
   return (
@@ -87,7 +110,7 @@ export default function OrderTrackingScreen() {
 
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>Live Logistics Tracking</Text>
-          <Text style={styles.headerSub}>Waybill #{order.trackingNumber || 'SL-NG-99824'}</Text>
+          <Text style={styles.headerSub}>{order?.trackingNumber ? `Waybill #${order.trackingNumber}` : 'Waybill pending'}</Text>
         </View>
 
         <TouchableOpacity
@@ -112,14 +135,14 @@ export default function OrderTrackingScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.carrierKicker}>OFFICIAL LOGISTICS PARTNER</Text>
-              <Text style={styles.carrierName}>{order.carrierName || 'GIG Logistics Express'}</Text>
-              <Text style={styles.waybillText}>Waybill: {order.trackingNumber || 'SL-NG-99824'}</Text>
+              <Text style={styles.carrierName}>{order?.carrierName || 'Carrier not assigned'}</Text>
+              <Text style={styles.waybillText}>{order?.trackingNumber ? `Waybill: ${order.trackingNumber}` : 'Tracking details will appear after dispatch.'}</Text>
             </View>
 
             <TouchableOpacity
               style={styles.contactBtn}
               activeOpacity={0.8}
-              onPress={() => navigate('create-ticket', { orderId: order.id })}
+              onPress={() => navigate('create-ticket', { orderId: order?.id })}
             >
               <Ionicons name="call" size={14} color="#FFFFFF" />
               <Text style={styles.contactBtnText}>Contact</Text>
@@ -133,12 +156,12 @@ export default function OrderTrackingScreen() {
             <Ionicons name="time" size={18} color="#0F382C" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.etaTitle}>Estimated Arrival Today</Text>
-            <Text style={styles.etaSub}>Package is moving between hubs • On schedule</Text>
+            <Text style={styles.etaTitle}>{order?.apiStatus === 'in_transit' ? 'Shipment in transit' : 'Shipment status'}</Text>
+            <Text style={styles.etaSub}>{order?.trackingNumber ? 'Use the carrier waybill for the latest location.' : 'Dispatch and tracking information are pending.'}</Text>
           </View>
           <View style={styles.livePulsePill}>
             <View style={styles.liveGreenDot} />
-            <Text style={styles.livePillText}>LIVE</Text>
+            <Text style={styles.livePillText}>SERVER</Text>
           </View>
         </View>
 
@@ -222,7 +245,7 @@ export default function OrderTrackingScreen() {
         <TouchableOpacity
           style={styles.helpCard}
           activeOpacity={0.8}
-          onPress={() => navigate('create-ticket', { orderId: order.id })}
+          onPress={() => navigate('create-ticket', { orderId: order?.id })}
         >
           <View style={styles.helpIconCircle}>
             <Ionicons name="chatbubble-ellipses-outline" size={20} color="#0F382C" />

@@ -89,7 +89,7 @@ export default function CheckoutReviewScreen() {
         {/* Editorial Section Title */}
         <View style={styles.titleSection}>
           <Text style={styles.titleText}>Review & Confirm</Text>
-          <Text style={styles.titleSub}>Verify your order items and destination before payment.</Text>
+          <Text style={styles.titleSub}>Verify your order items and destination. Live payment is intentionally deferred.</Text>
         </View>
 
         {/* Fulfilling Merchant Card */}
@@ -174,7 +174,7 @@ export default function CheckoutReviewScreen() {
 
         {/* Final Price Breakdown Card */}
         <View style={styles.card}>
-          <Text style={styles.summarySectionTitle}>Payment Breakdown</Text>
+          <Text style={styles.summarySectionTitle}>Order Total</Text>
 
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>Items Subtotal</Text>
@@ -189,7 +189,7 @@ export default function CheckoutReviewScreen() {
           <View style={styles.divider} />
 
           <View style={styles.totalPriceRow}>
-            <Text style={styles.totalPriceLabel}>Total Payable (NGN)</Text>
+            <Text style={styles.totalPriceLabel}>Estimated Total (NGN)</Text>
             <Text style={styles.totalPriceVal}>₦ {total.toLocaleString()}</Text>
           </View>
         </View>
@@ -202,8 +202,8 @@ export default function CheckoutReviewScreen() {
           activeOpacity={0.88}
           onPress={handlePayPress}
         >
-          <Ionicons name="lock-closed" size={16} color="#C69B56" />
-          <Text style={styles.payBtnText}>Pay with Paystack • ₦ {total.toLocaleString()}</Text>
+          <Ionicons name="construct-outline" size={16} color="#C69B56" />
+          <Text style={styles.payBtnText}>Payment Demo • ₦ {total.toLocaleString()}</Text>
           <View style={styles.btnIconBadge}>
             <Ionicons name="arrow-forward" size={14} color="#0F382C" />
           </View>
