@@ -10,7 +10,8 @@ import {
 test('allows merchant submission and moderator decisions', () => {
   assert.doesNotThrow(() => assertProductTransition('draft', 'pending_approval'));
   assert.doesNotThrow(() => assertProductTransition('pending_approval', 'published'));
-  assert.doesNotThrow(() => assertProductTransition('pending_approval', 'draft'));
+  assert.doesNotThrow(() => assertProductTransition('pending_approval', 'rejected'));
+  assert.doesNotThrow(() => assertProductTransition('rejected', 'draft'));
 });
 
 test('requires complete submission data and only remoderates listing-affecting edits', () => {
@@ -31,6 +32,8 @@ test('requires complete submission data and only remoderates listing-affecting e
   );
   assert.equal(requiresRemoderation({ comparePriceMinor: 5_500_000 } as any), false);
   assert.equal(requiresRemoderation({ title: 'Updated product title' }), true);
+  assert.equal(requiresRemoderation({ condition: 'open_box' }), true);
+  assert.equal(requiresRemoderation({ tags: ['leather', 'formal'] }), true);
 });
 
 test('rejects publishing without moderation and editing a pending product', () => {

@@ -7,6 +7,7 @@ import {
   boolean, 
   bigint, 
   integer, 
+  numeric,
   jsonb,
   index,
   uniqueIndex
@@ -41,6 +42,7 @@ export const productStatusEnum = pgEnum('product_status_type', [
   'draft',
   'pending_approval',
   'published',
+  'rejected',
   'archived'
 ]);
 
@@ -183,7 +185,7 @@ export const merchants = pgTable('merchants', {
   lga: text('lga').notNull(),
   address: text('address').notNull(),
   status: merchantStatusEnum('status').default('pending_verification').notNull(),
-  commissionRateBps: integer('commission_rate_bps').default(1000).notNull(),
+  commissionRateBps: integer('commission_rate_bps').default(500).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
@@ -252,11 +254,22 @@ export const products = pgTable('products', {
   merchantId: uuid('merchant_id').references(() => merchants.id, { onDelete: 'restrict' }).notNull(),
   categoryId: uuid('category_id').references(() => categories.id, { onDelete: 'set null' }),
   brandId: uuid('brand_id').references(() => brands.id, { onDelete: 'set null' }),
+  brand: text('brand').default('SellFast Signature').notNull(),
+  condition: text('condition').default('brand_new').notNull(),
   title: text('title').notNull(),
   slug: text('slug').notNull().unique(),
   description: text('description'),
   basePriceMinor: bigint('base_price_minor', { mode: 'number' }).notNull(),
   comparePriceMinor: bigint('compare_price_minor', { mode: 'number' }),
+  weightKg: numeric('weight_kg', { precision: 6, scale: 2 }).default('0.85').notNull(),
+  dimensionsCm: text('dimensions_cm').default('33 × 21 × 12').notNull(),
+  returnPolicy: text('return_policy').default('7_day_escrow').notNull(),
+  warranty: text('warranty').default('30_days').notNull(),
+  tags: text('tags').array().default([]).notNull(),
+  rejectionReason: text('rejection_reason'),
+  moderatedBy: uuid('moderated_by').references(() => profiles.id),
+  moderatedAt: timestamp('moderated_at', { withTimezone: true }),
+  qualityScore: integer('quality_score').default(100).notNull(),
   currency: text('currency').default('NGN').notNull(),
   status: productStatusEnum('status').default('draft').notNull(),
   isFeatured: boolean('is_featured').default(false).notNull(),
@@ -269,6 +282,8 @@ export const productVariants = pgTable('product_variants', {
   productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }).notNull(),
   sku: text('sku'),
   title: text('title').default('Default').notNull(),
+  optionSize: text('option_size'),
+  optionColor: text('option_color'),
   priceMinor: bigint('price_minor', { mode: 'number' }).notNull(),
   attributes: jsonb('attributes').default({}).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -291,6 +306,7 @@ export const inventoryLevels = pgTable('inventory_levels', {
   variantId: uuid('variant_id').references(() => productVariants.id, { onDelete: 'cascade' }).primaryKey(),
   availableQuantity: integer('available_quantity').default(0).notNull(),
   reservedQuantity: integer('reserved_quantity').default(0).notNull(),
+  lowStockThreshold: integer('low_stock_threshold').default(3).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
 

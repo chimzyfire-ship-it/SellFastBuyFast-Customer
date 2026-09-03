@@ -1,11 +1,12 @@
 import { errors } from '../../lib/errors.js';
 
-export type ProductStatus = 'draft' | 'pending_approval' | 'published' | 'archived';
+export type ProductStatus = 'draft' | 'pending_approval' | 'published' | 'rejected' | 'archived';
 
 const PRODUCT_TRANSITIONS: Record<ProductStatus, ProductStatus[]> = {
   draft: ['pending_approval', 'archived'],
-  pending_approval: ['draft', 'published'],
+  pending_approval: ['published', 'rejected'],
   published: ['draft', 'archived'],
+  rejected: ['draft', 'archived'],
   archived: ['draft'],
 };
 
@@ -19,8 +20,19 @@ export function requiresRemoderation(patch: {
   title?: string;
   description?: string;
   categoryId?: string | null;
+  brandId?: string | null;
+  brand?: string;
+  condition?: string;
+  weightKg?: number;
+  dimensionsCm?: string;
+  returnPolicy?: string;
+  warranty?: string;
+  tags?: string[];
 }): boolean {
-  return patch.title !== undefined || patch.description !== undefined || patch.categoryId !== undefined;
+  return patch.title !== undefined || patch.description !== undefined || patch.categoryId !== undefined || patch.brandId !== undefined ||
+    patch.brand !== undefined || patch.condition !== undefined || patch.weightKg !== undefined ||
+    patch.dimensionsCm !== undefined || patch.returnPolicy !== undefined || patch.warranty !== undefined ||
+    patch.tags !== undefined;
 }
 
 export function assertProductReadyForSubmission(input: {
