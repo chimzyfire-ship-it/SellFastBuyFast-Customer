@@ -36,7 +36,11 @@ export function createApp(): Express {
   app.use(express.json({
     limit: '1mb',
     verify(req, _res, buffer) {
-      if ((req as Request).originalUrl.startsWith('/v1/payments/webhook/paystack')) {
+      const requestUrl = (req as Request).originalUrl;
+      if (
+        requestUrl.startsWith('/v1/payments/webhook/paystack') ||
+        requestUrl.startsWith('/v1/fulfilment/webhooks/')
+      ) {
         (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
       }
     },

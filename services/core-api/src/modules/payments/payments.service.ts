@@ -9,7 +9,7 @@ import {
   paymentAttempts,
 } from '../../db/schema.js';
 import { errors } from '../../lib/errors.js';
-import { LedgerService, merchantLedgerCode } from '../ledger/ledger.service.js';
+import { LedgerService } from '../ledger/ledger.service.js';
 import { transitionOrder } from '../orders/orderStateMachine.js';
 
 export interface VerifiedPayment {
@@ -126,26 +126,18 @@ export async function completeSuccessfulPayment(input: VerifiedPayment) {
         .where(eq(inventoryLevels.variantId, reservation.variantId));
     }
 
-    await LedgerService.ensureMerchantAccounts(tx, order.merchantId);
-    const merchantShare = order.subtotalMinor - order.platformCommissionMinor;
     await LedgerService.postJournalEntry(
       {
         reference: `payment:${attempt.providerReference}`,
-        entryType: 'order_payment',
-        narration: `Verified payment for ${order.orderNumber}`,
+        entryType: 'order_payment_escrowed',
+        narration: `Verified payment held in escrow for ${order.orderNumber}`,
         currency: order.currency,
         lines: [
           { accountCode: '1000', direction: 'debit', amountMinor: order.totalAmountMinor },
-          {
-            accountCode: merchantLedgerCode(order.merchantId, 'pending'),
-            direction: 'credit',
-            amountMinor: merchantShare,
-          },
-          {
-            accountCode: '4000',
-            direction: 'credit',
-            amountMinor: order.platformCommissionMinor + order.deliveryFeeMinor,
-          },
+          { accountCode: '2001', direction: 'credit', amountMinor: order.subtotalMinor },
+          ...(order.deliveryFeeMinor > 0
+            ? [{ accountCode: '4010', direction: 'credit' as const, amountMinor: order.deliveryFeeMinor }]
+            : []),
         ],
       },
       tx

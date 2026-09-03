@@ -9,7 +9,7 @@ export const ORDER_TRANSITIONS: Record<string, string[]> = {
   processing: ['in_transit', 'disputed'],
   in_transit: ['delivered', 'disputed'],
   delivered: ['completed', 'disputed'],
-  completed: ['disputed'],
+  completed: [],
   disputed: ['completed', 'refunded'],
   cancelled: [],
   refunded: [],

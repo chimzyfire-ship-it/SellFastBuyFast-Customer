@@ -16,5 +16,6 @@ test('allows the intended happy-path order transitions', () => {
 test('rejects skipped and terminal-state transitions', () => {
   assert.throws(() => assertTransition('pending_payment', 'delivered'));
   assert.throws(() => assertTransition('completed', 'processing'));
+  assert.throws(() => assertTransition('completed', 'disputed'));
   assert.throws(() => assertTransition('cancelled', 'payment_confirmed'));
 });

@@ -28,12 +28,16 @@ test('rejects undelivered orders and expired return windows with stable codes', 
   );
 });
 
-test('only allows disputes once fulfilment has begun', () => {
-  for (const status of ['processing', 'in_transit', 'delivered', 'completed']) {
+test('only allows disputes while fulfilment or buyer protection is active', () => {
+  for (const status of ['processing', 'in_transit', 'delivered']) {
     assert.doesNotThrow(() => assertDisputeEligibility(status));
   }
   assert.throws(
     () => assertDisputeEligibility('pending_payment'),
+    (error) => error instanceof AppError && error.code === 'ORDER_NOT_DISPUTABLE'
+  );
+  assert.throws(
+    () => assertDisputeEligibility('completed'),
     (error) => error instanceof AppError && error.code === 'ORDER_NOT_DISPUTABLE'
   );
 });
