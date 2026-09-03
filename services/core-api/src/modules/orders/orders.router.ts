@@ -24,6 +24,7 @@ import { config } from '../../lib/config.js';
 import { AppError, errors, sendError } from '../../lib/errors.js';
 import { PaystackClient } from '../../lib/paystack.js';
 import { transitionOrder } from './orderStateMachine.js';
+import { recordInventoryTransaction } from '../inventory/inventory.service.js';
 
 export const ordersRouter = Router();
 
@@ -206,6 +207,7 @@ ordersRouter.post(
 
         // Reserve stock atomically: available moves to reserved while rows are locked
         for (const item of items) {
+          const availableBefore = inventoryByVariant.get(item.variantId)!;
           await tx
             .update(inventoryLevels)
             .set({
@@ -214,6 +216,15 @@ ordersRouter.post(
               updatedAt: new Date(),
             })
             .where(eq(inventoryLevels.variantId, item.variantId));
+          await recordInventoryTransaction(tx, {
+            variantId: item.variantId,
+            delta: -item.quantity,
+            actionType: 'checkout_reserve',
+            balanceAfter: availableBefore - item.quantity,
+            referenceId: newOrder.id,
+            actorId: buyerId,
+            note: 'Stock reserved for checkout pending payment.',
+          });
         }
 
         const [attempt] = await tx
@@ -354,14 +365,24 @@ ordersRouter.post('/:id/cancel', requireAuth, idempotency('order-cancel'), async
           .set({ status: 'released' })
           .where(eq(inventoryReservations.id, reservation.id));
 
-        await tx
+        const [updatedInventory] = await tx
           .update(inventoryLevels)
           .set({
             availableQuantity: sql`${inventoryLevels.availableQuantity} + ${reservation.quantity}`,
             reservedQuantity: sql`${inventoryLevels.reservedQuantity} - ${reservation.quantity}`,
             updatedAt: new Date(),
           })
-          .where(eq(inventoryLevels.variantId, reservation.variantId));
+          .where(eq(inventoryLevels.variantId, reservation.variantId))
+          .returning({ availableQuantity: inventoryLevels.availableQuantity });
+        await recordInventoryTransaction(tx, {
+          variantId: reservation.variantId,
+          delta: reservation.quantity,
+          actionType: 'checkout_release',
+          balanceAfter: updatedInventory.availableQuantity,
+          referenceId: id,
+          actorId: req.user!.id,
+          note: 'Buyer cancelled order before merchant acceptance.',
+        });
       }
 
       await tx.insert(outboxEvents).values({

@@ -10,6 +10,7 @@ import {
 } from '../../db/schema.js';
 import { errors } from '../../lib/errors.js';
 import { LedgerService } from '../ledger/ledger.service.js';
+import { recordInventoryTransaction } from '../inventory/inventory.service.js';
 import { transitionOrder } from '../orders/orderStateMachine.js';
 
 export interface VerifiedPayment {
@@ -80,14 +81,23 @@ export async function completeSuccessfulPayment(input: VerifiedPayment) {
           .update(inventoryReservations)
           .set({ status: 'released' })
           .where(eq(inventoryReservations.id, reservation.id));
-        await tx
+        const [updatedInventory] = await tx
           .update(inventoryLevels)
           .set({
             availableQuantity: sql`${inventoryLevels.availableQuantity} + ${reservation.quantity}`,
             reservedQuantity: sql`${inventoryLevels.reservedQuantity} - ${reservation.quantity}`,
             updatedAt: now,
           })
-          .where(eq(inventoryLevels.variantId, reservation.variantId));
+          .where(eq(inventoryLevels.variantId, reservation.variantId))
+          .returning({ availableQuantity: inventoryLevels.availableQuantity });
+        await recordInventoryTransaction(tx, {
+          variantId: reservation.variantId,
+          delta: reservation.quantity,
+          actionType: 'checkout_release',
+          balanceAfter: updatedInventory.availableQuantity,
+          referenceId: order.id,
+          note: 'Reserved stock released because payment arrived after reservation expiry.',
+        });
       }
 
       await transitionOrder(tx, order.id, 'cancelled', undefined, 'Payment arrived after stock reservation expired');
@@ -117,13 +127,22 @@ export async function completeSuccessfulPayment(input: VerifiedPayment) {
         .update(inventoryReservations)
         .set({ status: 'committed' })
         .where(eq(inventoryReservations.id, reservation.id));
-      await tx
+      const [updatedInventory] = await tx
         .update(inventoryLevels)
         .set({
           reservedQuantity: sql`${inventoryLevels.reservedQuantity} - ${reservation.quantity}`,
           updatedAt: now,
         })
-        .where(eq(inventoryLevels.variantId, reservation.variantId));
+        .where(eq(inventoryLevels.variantId, reservation.variantId))
+        .returning({ availableQuantity: inventoryLevels.availableQuantity });
+      await recordInventoryTransaction(tx, {
+        variantId: reservation.variantId,
+        delta: 0,
+        actionType: 'order_fulfilled',
+        balanceAfter: updatedInventory.availableQuantity,
+        referenceId: order.id,
+        note: 'Reserved stock committed after verified payment.',
+      });
     }
 
     await LedgerService.postJournalEntry(

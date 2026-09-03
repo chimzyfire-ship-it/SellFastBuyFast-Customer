@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   auditEvents,
@@ -9,15 +9,24 @@ import {
   categories,
   inventoryLevels,
   merchants,
+  merchantMembers,
+  notifications,
   outboxEvents,
   productMedia,
+  productModerationLogs,
   products,
   productVariants,
 } from '../../db/schema.js';
 import { errors, sendError } from '../../lib/errors.js';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { idempotency } from '../../middleware/idempotency.js';
-import { assertProductTransition, ProductStatus } from './catalogManagement.policy.js';
+import {
+  assertProductReadyForSubmission,
+  assertProductTransition,
+  ProductStatus,
+  requiresRemoderation,
+} from './catalogManagement.policy.js';
+import { recordInventoryTransaction } from '../inventory/inventory.service.js';
 
 export const catalogManagementRouter = Router();
 catalogManagementRouter.use(requireAuth);
@@ -56,6 +65,16 @@ const UpdateProductSchema = z.object({
   description: z.string().trim().min(10).max(10_000).optional(),
   comparePriceMinor: z.number().int().positive().safe().nullable().optional(),
 }).refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+const UpdateVariantSchema = z.object({
+  sku: z.string().trim().min(2).max(80).optional(),
+  title: z.string().trim().min(1).max(120).optional(),
+  priceMinor: z.number().int().positive().safe().optional(),
+}).refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+const UpdateMediaSchema = z.object({
+  mediaUrl: z.string().url().max(2_000).optional(),
+  altText: z.string().trim().max(240).nullable().optional(),
+  sortOrder: z.number().int().min(0).max(1_000).optional(),
+}).refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 const InventorySchema = z.object({ availableQuantity: z.number().int().min(0).max(1_000_000) });
 const ModerationSchema = z.object({
   decision: z.enum(['publish', 'reject']),
@@ -63,6 +82,7 @@ const ModerationSchema = z.object({
 });
 
 const platformRoles = new Set(['catalogue_moderator', 'operations_admin', 'security_admin']);
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function assertMerchantAccess(req: Request, merchantId: string): void {
   const platform = req.user!.roles.some((role) => platformRoles.has(role));
@@ -72,6 +92,19 @@ function assertMerchantAccess(req: Request, merchantId: string): void {
 function slugFor(title: string): string {
   const base = title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70);
   return `${base || 'product'}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+async function notifyMerchantMembers(
+  tx: Tx,
+  merchantId: string,
+  input: { type: string; title: string; body: string; data: Record<string, unknown> }
+): Promise<void> {
+  const members = await tx
+    .select({ userId: merchantMembers.userId })
+    .from(merchantMembers)
+    .where(eq(merchantMembers.merchantId, merchantId));
+  if (members.length === 0) return;
+  await tx.insert(notifications).values(members.map((member) => ({ userId: member.userId, ...input })));
 }
 
 async function detailedProducts(merchantId: string) {
@@ -157,6 +190,15 @@ catalogManagementRouter.post(
           availableQuantity: parsed.data.variants[index].availableQuantity,
           reservedQuantity: 0,
         })));
+        await Promise.all(variants.map((variant, index) => recordInventoryTransaction(tx, {
+          variantId: variant.id,
+          delta: parsed.data.variants[index].availableQuantity,
+          actionType: 'merchant_set',
+          balanceAfter: parsed.data.variants[index].availableQuantity,
+          referenceId: product.id,
+          actorId: req.user!.id,
+          note: 'Initial stock set when product draft was created',
+        })));
         const media = parsed.data.media.length > 0
           ? await tx.insert(productMedia).values(parsed.data.media.map((item) => ({ ...item, productId: product.id }))).returning()
           : [];
@@ -168,6 +210,10 @@ catalogManagementRouter.post(
           metadata: { merchantId: merchant.id },
           ipAddress: req.ip,
         });
+        await tx.insert(outboxEvents).values({
+          type: 'catalog.product_created',
+          payload: { productId: product.id, merchantId: merchant.id },
+        });
         return { ...product, variants, media };
       });
       res.status(201).json({ success: true, data: result });
@@ -177,7 +223,185 @@ catalogManagementRouter.post(
   }
 );
 
-catalogManagementRouter.patch('/products/:id', idempotency('catalog-product-update'), async (req: Request, res: Response) => {
+catalogManagementRouter.patch(
+  '/variants/:id',
+  requireRole('merchant_owner', 'merchant_staff', 'staff'),
+  idempotency('catalog-variant-update'),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = UpdateVariantSchema.safeParse(req.body);
+      if (!parsed.success) throw errors.validation(parsed.error.message);
+      const result = await db.transaction(async (tx) => {
+        const [variant] = await tx.select().from(productVariants)
+          .where(eq(productVariants.id, req.params.id)).limit(1).for('update');
+        if (!variant) throw errors.notFound('Product variant not found.');
+        const [product] = await tx.select().from(products)
+          .where(eq(products.id, variant.productId)).limit(1).for('update');
+        if (!product) throw errors.notFound('Product not found.');
+        assertMerchantAccess(req, product.merchantId);
+        if (!['draft', 'published'].includes(product.status)) {
+          throw errors.conflict('PRODUCT_NOT_EDITABLE', 'A product under review cannot be edited.');
+        }
+        if (parsed.data.sku) {
+          const [duplicate] = await tx.select({ id: productVariants.id }).from(productVariants)
+            .where(and(
+              eq(productVariants.productId, product.id),
+              eq(productVariants.sku, parsed.data.sku),
+              ne(productVariants.id, variant.id)
+            )).limit(1);
+          if (duplicate) throw errors.conflict('DUPLICATE_SKU', 'Another variant on this product already uses that SKU.');
+        }
+        const [updated] = await tx.update(productVariants).set({ ...parsed.data, updatedAt: new Date() })
+          .where(eq(productVariants.id, variant.id)).returning();
+        const variants = await tx.select({ priceMinor: productVariants.priceMinor }).from(productVariants)
+          .where(eq(productVariants.productId, product.id));
+        const basePriceMinor = Math.min(...variants.map((item) => item.priceMinor));
+        if (product.comparePriceMinor !== null && product.comparePriceMinor <= basePriceMinor) {
+          throw errors.validation('Compare price must exceed the lowest variant price.');
+        }
+        await tx.update(products).set({ basePriceMinor, updatedAt: new Date() }).where(eq(products.id, product.id));
+        await tx.insert(auditEvents).values({
+          actorId: req.user!.id,
+          action: 'catalog.variant_updated',
+          resourceType: 'product_variant',
+          resourceId: variant.id,
+          metadata: { productId: product.id, fields: Object.keys(parsed.data), basePriceMinor },
+          ipAddress: req.ip,
+        });
+        await tx.insert(outboxEvents).values({
+          type: 'catalog.product_updated',
+          payload: { productId: product.id, merchantId: product.merchantId, changed: 'variant' },
+        });
+        return { ...updated, basePriceMinor };
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      sendError(res, err);
+    }
+  }
+);
+
+catalogManagementRouter.patch(
+  '/media/:id',
+  requireRole('merchant_owner', 'merchant_staff', 'staff'),
+  idempotency('catalog-media-update'),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = UpdateMediaSchema.safeParse(req.body);
+      if (!parsed.success) throw errors.validation(parsed.error.message);
+      const result = await db.transaction(async (tx) => {
+        const [media] = await tx.select().from(productMedia)
+          .where(eq(productMedia.id, req.params.id)).limit(1).for('update');
+        if (!media) throw errors.notFound('Product media not found.');
+        const [product] = await tx.select().from(products)
+          .where(eq(products.id, media.productId)).limit(1).for('update');
+        if (!product) throw errors.notFound('Product not found.');
+        assertMerchantAccess(req, product.merchantId);
+        if (!['draft', 'published'].includes(product.status)) {
+          throw errors.conflict('PRODUCT_NOT_EDITABLE', 'A product under review cannot be edited.');
+        }
+        const visualChanged = parsed.data.mediaUrl !== undefined && parsed.data.mediaUrl !== media.mediaUrl;
+        const returnedToDraft = product.status === 'published' && visualChanged;
+        const [updatedMedia] = await tx.update(productMedia).set(parsed.data).where(eq(productMedia.id, media.id)).returning();
+        let updatedProduct = product;
+        if (returnedToDraft) {
+          [updatedProduct] = await tx.update(products).set({ status: 'draft', updatedAt: new Date() })
+            .where(eq(products.id, product.id)).returning();
+          await tx.insert(productModerationLogs).values({
+            productId: product.id,
+            action: 'reapproval_required',
+            actorId: req.user!.id,
+            note: 'Published product image changed.',
+          });
+          await notifyMerchantMembers(tx, product.merchantId, {
+            type: 'catalog_reapproval_required',
+            title: 'Product requires re-approval',
+            body: `“${product.title}” was returned to draft because its product image changed. Submit it for Operations review.`,
+            data: { productId: product.id },
+          });
+        }
+        await tx.insert(auditEvents).values({
+          actorId: req.user!.id,
+          action: 'catalog.media_updated',
+          resourceType: 'product_media',
+          resourceId: media.id,
+          metadata: { productId: product.id, fields: Object.keys(parsed.data), returnedToDraft },
+          ipAddress: req.ip,
+        });
+        await tx.insert(outboxEvents).values({
+          type: returnedToDraft ? 'catalog.product_reapproval_required' : 'catalog.product_updated',
+          payload: { productId: product.id, merchantId: product.merchantId, changed: 'media' },
+        });
+        return { media: updatedMedia, productStatus: updatedProduct.status };
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      sendError(res, err);
+    }
+  }
+);
+
+catalogManagementRouter.post(
+  '/products/:id/media',
+  requireRole('merchant_owner', 'merchant_staff', 'staff'),
+  idempotency('catalog-media-create'),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = MediaSchema.safeParse(req.body);
+      if (!parsed.success) throw errors.validation(parsed.error.message);
+      const result = await db.transaction(async (tx) => {
+        const [product] = await tx.select().from(products)
+          .where(eq(products.id, req.params.id)).limit(1).for('update');
+        if (!product) throw errors.notFound('Product not found.');
+        assertMerchantAccess(req, product.merchantId);
+        if (!['draft', 'published'].includes(product.status)) {
+          throw errors.conflict('PRODUCT_NOT_EDITABLE', 'A product under review cannot be edited.');
+        }
+        const returnedToDraft = product.status === 'published';
+        const [media] = await tx.insert(productMedia).values({ ...parsed.data, productId: product.id }).returning();
+        let updatedProduct = product;
+        if (returnedToDraft) {
+          [updatedProduct] = await tx.update(products).set({ status: 'draft', updatedAt: new Date() })
+            .where(eq(products.id, product.id)).returning();
+          await tx.insert(productModerationLogs).values({
+            productId: product.id,
+            action: 'reapproval_required',
+            actorId: req.user!.id,
+            note: 'Media was added to a published product.',
+          });
+          await notifyMerchantMembers(tx, product.merchantId, {
+            type: 'catalog_reapproval_required',
+            title: 'Product requires re-approval',
+            body: `“${product.title}” was returned to draft because product media changed. Submit it for Operations review.`,
+            data: { productId: product.id },
+          });
+        }
+        await tx.insert(auditEvents).values({
+          actorId: req.user!.id,
+          action: 'catalog.media_created',
+          resourceType: 'product_media',
+          resourceId: media.id,
+          metadata: { productId: product.id, returnedToDraft },
+          ipAddress: req.ip,
+        });
+        await tx.insert(outboxEvents).values({
+          type: returnedToDraft ? 'catalog.product_reapproval_required' : 'catalog.product_updated',
+          payload: { productId: product.id, merchantId: product.merchantId, changed: 'media' },
+        });
+        return { media, productStatus: updatedProduct.status };
+      });
+      res.status(201).json({ success: true, data: result });
+    } catch (err) {
+      sendError(res, err);
+    }
+  }
+);
+
+catalogManagementRouter.patch(
+  '/products/:id',
+  requireRole('merchant_owner', 'merchant_staff', 'staff'),
+  idempotency('catalog-product-update'),
+  async (req: Request, res: Response) => {
   try {
     const parsed = UpdateProductSchema.safeParse(req.body);
     if (!parsed.success) throw errors.validation(parsed.error.message);
@@ -198,9 +422,17 @@ catalogManagementRouter.patch('/products/:id', idempotency('catalog-product-upda
           .where(eq(brands.id, parsed.data.brandId)).limit(1);
         if (!brand) throw errors.validation('Brand does not exist.');
       }
+      if (
+        parsed.data.comparePriceMinor !== undefined &&
+        parsed.data.comparePriceMinor !== null &&
+        parsed.data.comparePriceMinor <= product.basePriceMinor
+      ) {
+        throw errors.validation('Compare price must exceed the current base price.');
+      }
+      const returnedToDraft = product.status === 'published' && requiresRemoderation(parsed.data);
       const [saved] = await tx.update(products).set({
         ...parsed.data,
-        status: product.status === 'published' ? 'draft' : product.status,
+        status: returnedToDraft ? 'draft' : product.status,
         updatedAt: new Date(),
       }).where(eq(products.id, product.id)).returning();
       await tx.insert(auditEvents).values({
@@ -208,42 +440,86 @@ catalogManagementRouter.patch('/products/:id', idempotency('catalog-product-upda
         action: 'catalog.product_updated',
         resourceType: 'product',
         resourceId: product.id,
-        metadata: { fields: Object.keys(parsed.data), returnedToDraft: product.status === 'published' },
+        metadata: { fields: Object.keys(parsed.data), returnedToDraft },
         ipAddress: req.ip,
       });
+      if (returnedToDraft) {
+        await tx.insert(productModerationLogs).values({
+          productId: product.id,
+          action: 'reapproval_required',
+          actorId: req.user!.id,
+          note: 'Published title, description, or category changed.',
+        });
+        await tx.insert(outboxEvents).values({
+          type: 'catalog.product_reapproval_required',
+          payload: { productId: product.id, merchantId: product.merchantId, fields: Object.keys(parsed.data) },
+        });
+        await notifyMerchantMembers(tx, product.merchantId, {
+          type: 'catalog_reapproval_required',
+          title: 'Product requires re-approval',
+          body: `“${saved.title}” was returned to draft because listing details changed. Submit it for Operations review.`,
+          data: { productId: saved.id },
+        });
+      }
       return saved;
     });
     res.json({ success: true, data: updated });
   } catch (err) {
     sendError(res, err);
   }
-});
+  }
+);
 
-catalogManagementRouter.patch('/variants/:id/inventory', idempotency('catalog-inventory-set'), async (req: Request, res: Response) => {
+catalogManagementRouter.patch(
+  '/variants/:id/inventory',
+  requireRole('merchant_owner', 'merchant_staff', 'staff'),
+  idempotency('catalog-inventory-set'),
+  async (req: Request, res: Response) => {
   try {
     const parsed = InventorySchema.safeParse(req.body);
     if (!parsed.success) throw errors.validation(parsed.error.message);
     const result = await db.transaction(async (tx) => {
       const [record] = await tx.select({ variant: productVariants, product: products })
         .from(productVariants).innerJoin(products, eq(products.id, productVariants.productId))
-        .where(eq(productVariants.id, req.params.id)).limit(1);
+        .where(eq(productVariants.id, req.params.id)).limit(1).for('update');
       if (!record) throw errors.notFound('Product variant not found.');
       assertMerchantAccess(req, record.product.merchantId);
-      const [inventory] = await tx.insert(inventoryLevels).values({
+      const [existing] = await tx.select().from(inventoryLevels)
+        .where(eq(inventoryLevels.variantId, record.variant.id)).limit(1).for('update');
+      const [inventory] = existing
+        ? await tx.update(inventoryLevels)
+          .set({ availableQuantity: parsed.data.availableQuantity, updatedAt: new Date() })
+          .where(eq(inventoryLevels.variantId, record.variant.id)).returning()
+        : await tx.insert(inventoryLevels).values({
+          variantId: record.variant.id,
+          availableQuantity: parsed.data.availableQuantity,
+          reservedQuantity: 0,
+        }).returning();
+      await recordInventoryTransaction(tx, {
         variantId: record.variant.id,
-        availableQuantity: parsed.data.availableQuantity,
-        reservedQuantity: 0,
-      }).onConflictDoUpdate({
-        target: inventoryLevels.variantId,
-        set: { availableQuantity: parsed.data.availableQuantity, updatedAt: new Date() },
-      }).returning();
+        delta: parsed.data.availableQuantity - (existing?.availableQuantity ?? 0),
+        actionType: 'merchant_set',
+        balanceAfter: inventory.availableQuantity,
+        referenceId: req.headers['idempotency-key'] as string | undefined,
+        actorId: req.user!.id,
+        note: 'Merchant set available inventory; active reservations were preserved.',
+      });
       await tx.insert(auditEvents).values({
         actorId: req.user!.id,
         action: 'catalog.inventory_set',
         resourceType: 'product_variant',
         resourceId: record.variant.id,
-        metadata: { availableQuantity: parsed.data.availableQuantity },
+        metadata: { availableQuantity: inventory.availableQuantity, reservedQuantity: inventory.reservedQuantity },
         ipAddress: req.ip,
+      });
+      await tx.insert(outboxEvents).values({
+        type: 'catalog.inventory_updated',
+        payload: {
+          productId: record.product.id,
+          variantId: record.variant.id,
+          availableQuantity: inventory.availableQuantity,
+          reservedQuantity: inventory.reservedQuantity,
+        },
       });
       return inventory;
     });
@@ -251,32 +527,60 @@ catalogManagementRouter.patch('/variants/:id/inventory', idempotency('catalog-in
   } catch (err) {
     sendError(res, err);
   }
-});
+  }
+);
 
-catalogManagementRouter.post('/products/:id/submit', idempotency('catalog-product-submit'), async (req: Request, res: Response) => {
+catalogManagementRouter.post(
+  '/products/:id/submit',
+  requireRole('merchant_owner', 'merchant_staff', 'staff'),
+  idempotency('catalog-product-submit'),
+  async (req: Request, res: Response) => {
   try {
     const result = await db.transaction(async (tx) => {
       const [product] = await tx.select().from(products).where(eq(products.id, req.params.id)).limit(1).for('update');
       if (!product) throw errors.notFound('Product not found.');
       assertMerchantAccess(req, product.merchantId);
       assertProductTransition(product.status as ProductStatus, 'pending_approval');
-      const [variant] = await tx.select({ id: productVariants.id }).from(productVariants)
-        .where(eq(productVariants.productId, product.id)).limit(1);
-      const [media] = await tx.select({ id: productMedia.id }).from(productMedia)
-        .where(eq(productMedia.productId, product.id)).limit(1);
-      if (!variant || !media || !product.description || !product.categoryId) {
-        throw errors.conflict('PRODUCT_INCOMPLETE', 'A category, description, variant, and product image are required.');
-      }
+      const [categoryRows, variants, media] = await Promise.all([
+        product.categoryId
+          ? tx.select({ isActive: categories.isActive, parentId: categories.parentId }).from(categories)
+            .where(eq(categories.id, product.categoryId)).limit(1)
+          : Promise.resolve([]),
+        tx.select({ sku: productVariants.sku, priceMinor: productVariants.priceMinor }).from(productVariants)
+          .where(eq(productVariants.productId, product.id)),
+        tx.select({ mediaType: productMedia.mediaType }).from(productMedia)
+          .where(eq(productMedia.productId, product.id)),
+      ]);
+      assertProductReadyForSubmission({
+        description: product.description,
+        category: categoryRows[0] ?? null,
+        variants,
+        media,
+      });
       const [updated] = await tx.update(products).set({ status: 'pending_approval', updatedAt: new Date() })
         .where(eq(products.id, product.id)).returning();
       await tx.insert(outboxEvents).values({ type: 'catalog.product_submitted', payload: { productId: product.id } });
+      await tx.insert(productModerationLogs).values({
+        productId: product.id,
+        action: 'submitted',
+        actorId: req.user!.id,
+      });
+      await tx.insert(auditEvents).values({
+        actorId: req.user!.id,
+        action: 'catalog.product_submitted',
+        resourceType: 'product',
+        resourceId: product.id,
+        metadata: { merchantId: product.merchantId },
+        ipAddress: req.ip,
+      });
       return updated;
     });
     res.json({ success: true, data: result });
   } catch (err) {
     sendError(res, err);
   }
-});
+  }
+);
 
 catalogManagementRouter.post(
   '/products/:id/moderate',
@@ -301,9 +605,28 @@ catalogManagementRouter.post(
           metadata: { note: parsed.data.note },
           ipAddress: req.ip,
         });
+        await tx.insert(productModerationLogs).values({
+          productId: product.id,
+          action: parsed.data.decision === 'publish' ? 'published' : 'rejected',
+          actorId: req.user!.id,
+          note: parsed.data.note,
+        });
         await tx.insert(outboxEvents).values({
           type: `catalog.product_${parsed.data.decision === 'publish' ? 'published' : 'rejected'}`,
-          payload: { productId: product.id, merchantId: product.merchantId, note: parsed.data.note },
+          payload: {
+            productId: product.id,
+            merchantId: product.merchantId,
+            note: parsed.data.note,
+            indexAction: parsed.data.decision === 'publish' ? 'upsert' : 'remove',
+          },
+        });
+        await notifyMerchantMembers(tx, product.merchantId, {
+          type: parsed.data.decision === 'publish' ? 'catalog_product_published' : 'catalog_product_rejected',
+          title: parsed.data.decision === 'publish' ? 'Product published' : 'Product needs changes',
+          body: parsed.data.decision === 'publish'
+            ? `“${updated.title}” is now visible to shoppers.`
+            : `“${updated.title}” was returned to draft: ${parsed.data.note}`,
+          data: { productId: updated.id, decision: parsed.data.decision },
         });
         return updated;
       });
