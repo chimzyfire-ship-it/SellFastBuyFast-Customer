@@ -8,6 +8,7 @@ import {
   bigint, 
   integer, 
   jsonb,
+  index,
   uniqueIndex
 } from 'drizzle-orm/pg-core';
 
@@ -266,13 +267,15 @@ export const products = pgTable('products', {
 export const productVariants = pgTable('product_variants', {
   id: uuid('id').primaryKey().defaultRandom(),
   productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }).notNull(),
-  sku: text('sku').unique(),
+  sku: text('sku'),
   title: text('title').default('Default').notNull(),
   priceMinor: bigint('price_minor', { mode: 'number' }).notNull(),
   attributes: jsonb('attributes').default({}).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
-});
+}, (t) => ({
+  productSkuIdx: uniqueIndex('product_variants_product_sku_unique').on(t.productId, t.sku),
+}));
 
 export const productMedia = pgTable('product_media', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -300,6 +303,31 @@ export const inventoryReservations = pgTable('inventory_reservations', {
   status: reservationStatusEnum('status').default('active').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 });
+
+export const inventoryTransactions = pgTable('inventory_transactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  variantId: uuid('variant_id').references(() => productVariants.id, { onDelete: 'cascade' }).notNull(),
+  delta: integer('delta').notNull(),
+  actionType: text('action_type').notNull(),
+  referenceId: text('reference_id'),
+  actorId: uuid('actor_id').references(() => profiles.id),
+  note: text('note'),
+  balanceAfter: integer('balance_after').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  variantCreatedIdx: index('inventory_transactions_variant_created_idx').on(t.variantId, t.createdAt),
+}));
+
+export const productModerationLogs = pgTable('product_moderation_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }).notNull(),
+  action: text('action').notNull(),
+  note: text('note'),
+  actorId: uuid('actor_id').references(() => profiles.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  productCreatedIdx: index('product_moderation_logs_product_created_idx').on(t.productId, t.createdAt),
+}));
 
 // 4. Shopping & Orders
 export const carts = pgTable('carts', {
