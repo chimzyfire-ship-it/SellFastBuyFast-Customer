@@ -1,7 +1,10 @@
 import { errors } from '../../lib/errors.js';
 
 const RETURNABLE_ORDER_STATUSES = new Set(['delivered']);
-const DISPUTABLE_ORDER_STATUSES = new Set(['processing', 'in_transit', 'delivered', 'completed']);
+// Completion means the buyer-protection window closed and the escrow release
+// has posted. Reopening disputes after that point would require a separate
+// merchant-balance hold/reversal workflow, so it is intentionally disallowed.
+const DISPUTABLE_ORDER_STATUSES = new Set(['processing', 'in_transit', 'delivered']);
 
 export function assertReturnEligibility(input: {
   orderStatus: string;

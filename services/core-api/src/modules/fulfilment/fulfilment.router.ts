@@ -1,22 +1,27 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { desc, eq, inArray, sql } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   orderLines,
   orders,
   notifications,
   outboxEvents,
-  returnRequests,
   shipmentEvents,
   shipments,
+  providerEvents,
 } from '../../db/schema.js';
 import { config } from '../../lib/config.js';
 import { errors, sendError } from '../../lib/errors.js';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { idempotency } from '../../middleware/idempotency.js';
-import { LedgerService, merchantLedgerCode } from '../ledger/ledger.service.js';
 import { transitionOrder } from '../orders/orderStateMachine.js';
+import { completeDeliveredOrder, recordDeliveredOrder } from './fulfilment.service.js';
+import {
+  carrierWebhookKey,
+  isDeliveredWebhookEvent,
+  verifyLogisticsWebhookSignature,
+} from './logistics.policy.js';
 
 export const fulfilmentRouter = Router();
 
@@ -29,6 +34,15 @@ const ShipmentSchema = z.object({
 const DeliverySchema = z.object({
   deliveryEvidenceUrl: z.string().url(),
   note: z.string().max(500).optional(),
+});
+
+const LogisticsWebhookSchema = z.object({
+  eventId: z.string().trim().min(1).max(200),
+  event: z.string().trim().min(1).max(120),
+  orderId: z.string().uuid(),
+  deliveryEvidenceUrl: z.string().url().max(2_000).optional(),
+  note: z.string().trim().max(500).optional(),
+  occurredAt: z.coerce.date().optional(),
 });
 
 const platformRoles = new Set([
@@ -213,33 +227,12 @@ fulfilmentRouter.post(
       const parsed = DeliverySchema.safeParse(req.body);
       if (!parsed.success) throw errors.validation(parsed.error.message);
 
-      const result = await db.transaction(async (tx) => {
-        const [order] = await tx.select().from(orders).where(eq(orders.id, req.params.orderId)).limit(1).for('update');
-        if (!order) throw errors.notFound('Order not found.');
-        const [shipment] = await tx.select().from(shipments).where(eq(shipments.orderId, order.id)).limit(1).for('update');
-        if (!shipment) throw errors.notFound('Shipment not found.');
-        if (shipment.status !== 'in_transit') throw errors.invalidTransition('Shipment is not in transit.');
-
-        const now = new Date();
-        await tx
-          .update(shipments)
-          .set({ status: 'delivered', deliveryEvidenceUrl: parsed.data.deliveryEvidenceUrl, deliveredAt: now, updatedAt: now })
-          .where(eq(shipments.id, shipment.id));
-        await tx.insert(shipmentEvents).values({ shipmentId: shipment.id, status: 'delivered', note: parsed.data.note });
-        await transitionOrder(tx, order.id, 'delivered', req.user!.id, 'Delivery evidence recorded');
-        await tx.insert(outboxEvents).values({
-          type: 'order.delivered',
-          payload: { orderId: order.id, returnWindowEndsAt: new Date(now.getTime() + config.fulfilment.returnWindowDays * 86_400_000) },
-        });
-        await tx.insert(notifications).values({
-          userId: order.buyerId,
-          type: 'order_delivered',
-          title: 'Order delivered',
-          body: 'Delivery evidence has been recorded. Your return window is now open.',
-          data: { orderId: order.id },
-        });
-        return { orderId: order.id, status: 'delivered', deliveredAt: now };
-      });
+      const result = await db.transaction((tx) => recordDeliveredOrder(tx, {
+        orderId: req.params.orderId,
+        deliveryEvidenceUrl: parsed.data.deliveryEvidenceUrl,
+        actorId: req.user!.id,
+        note: parsed.data.note,
+      }));
       res.json({ success: true, data: result });
     } catch (err) {
       sendError(res, err);
@@ -254,52 +247,88 @@ fulfilmentRouter.post(
   idempotency('fulfilment-complete'),
   async (req: Request, res: Response) => {
     try {
-      const result = await db.transaction(async (tx) => {
-        const [order] = await tx.select().from(orders).where(eq(orders.id, req.params.orderId)).limit(1).for('update');
-        if (!order) throw errors.notFound('Order not found.');
-        if (order.status !== 'delivered') throw errors.invalidTransition('Only delivered orders can be completed.');
-
-        const [shipment] = await tx.select().from(shipments).where(eq(shipments.orderId, order.id)).limit(1).for('update');
-        if (!shipment?.deliveredAt) throw errors.conflict('DELIVERY_EVIDENCE_REQUIRED', 'Delivery evidence is required.');
-        const releaseAt = new Date(shipment.deliveredAt.getTime() + config.fulfilment.returnWindowDays * 86_400_000);
-        if (releaseAt > new Date()) throw errors.conflict('RETURN_WINDOW_OPEN', `Funds cannot be released before ${releaseAt.toISOString()}.`);
-
-        const [openReturn] = await tx
-          .select({ id: returnRequests.id })
-          .from(returnRequests)
-          .where(sql`${returnRequests.orderId} = ${order.id} AND ${returnRequests.status} NOT IN ('rejected', 'completed')`)
-          .limit(1);
-        if (openReturn) throw errors.conflict('RETURN_OPEN', 'An open return blocks merchant fund release.');
-
-        await LedgerService.ensureMerchantAccounts(tx, order.merchantId);
-        const merchantShare = order.subtotalMinor - order.platformCommissionMinor;
-        await LedgerService.postJournalEntry(
-          {
-            reference: `merchant-release:${order.id}`,
-            entryType: 'merchant_funds_release',
-            narration: `Release merchant funds for ${order.orderNumber}`,
-            currency: order.currency,
-            lines: [
-              { accountCode: merchantLedgerCode(order.merchantId, 'pending'), direction: 'debit', amountMinor: merchantShare },
-              { accountCode: merchantLedgerCode(order.merchantId, 'available'), direction: 'credit', amountMinor: merchantShare },
-            ],
-          },
-          tx
-        );
-        await transitionOrder(tx, order.id, 'completed', req.user!.id, 'Return window elapsed; merchant funds released');
-        await tx.insert(outboxEvents).values({ type: 'order.completed', payload: { orderId: order.id } });
-        await tx.insert(notifications).values({
-          userId: order.buyerId,
-          type: 'order_completed',
-          title: 'Order complete',
-          body: 'The return window has elapsed and the order is complete.',
-          data: { orderId: order.id },
-        });
-        return { orderId: order.id, status: 'completed', releasedAmountMinor: merchantShare };
-      });
+      const result = await db.transaction((tx) => completeDeliveredOrder(tx, {
+        orderId: req.params.orderId,
+        actorId: req.user!.id,
+      }));
       res.json({ success: true, data: result });
     } catch (err) {
       sendError(res, err);
     }
   }
 );
+
+/**
+ * Carrier callbacks are intentionally separate from authenticated staff routes.
+ * A carrier must be configured in LOGISTICS_WEBHOOK_SECRETS and sign its raw JSON
+ * payload with HMAC-SHA256 in x-logistics-signature (a sha256= prefix is allowed).
+ */
+fulfilmentRouter.post('/webhooks/:carrier', async (req: Request, res: Response) => {
+  const carrier = carrierWebhookKey(req.params.carrier);
+  const secret = config.fulfilment.logisticsWebhookSecrets[carrier];
+  if (!secret) {
+    res.status(404).json({ success: false, error: { code: 'UNKNOWN_CARRIER', message: 'Carrier webhook is not configured.' } });
+    return;
+  }
+
+  const signatureHeader = req.headers['x-logistics-signature'] ?? req.headers['x-webhook-signature'];
+  const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  if (!verifyLogisticsWebhookSignature(rawBody, signature, secret)) {
+    res.status(401).json({ success: false, error: { code: 'INVALID_SIGNATURE', message: 'Invalid carrier webhook signature.' } });
+    return;
+  }
+
+  try {
+    const parsed = LogisticsWebhookSchema.safeParse(req.body);
+    if (!parsed.success) throw errors.validation(parsed.error.message);
+    const event = parsed.data;
+    const providerEventId = `logistics:${carrier}:${event.eventId}`;
+
+    const result = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(providerEvents)
+        .values({
+          eventId: providerEventId,
+          provider: `logistics:${carrier}`,
+          eventType: event.event,
+          payload: req.body,
+        })
+        .onConflictDoNothing()
+        .returning({ id: providerEvents.id, processedAt: providerEvents.processedAt });
+      const providerEvent = inserted[0] ?? (
+        await tx
+          .select({ id: providerEvents.id, processedAt: providerEvents.processedAt })
+          .from(providerEvents)
+          .where(eq(providerEvents.eventId, providerEventId))
+          .limit(1)
+          .for('update')
+      )[0];
+      if (!providerEvent) throw errors.internal('Unable to persist carrier webhook event.');
+      if (providerEvent.processedAt) return { status: 'already_processed' as const };
+
+      if (!isDeliveredWebhookEvent(event.event)) {
+        await tx.update(providerEvents).set({ processedAt: new Date() }).where(eq(providerEvents.id, providerEvent.id));
+        return { status: 'ignored' as const };
+      }
+      if (!event.deliveryEvidenceUrl) {
+        throw errors.validation('A delivered carrier event requires deliveryEvidenceUrl.');
+      }
+      if (event.occurredAt && event.occurredAt.getTime() > Date.now() + 5 * 60_000) {
+        throw errors.validation('Carrier delivery time cannot be in the future.');
+      }
+
+      const delivery = await recordDeliveredOrder(tx, {
+        orderId: event.orderId,
+        deliveryEvidenceUrl: event.deliveryEvidenceUrl,
+        note: event.note ?? `Carrier webhook: ${carrier}`,
+        deliveredAt: event.occurredAt,
+      });
+      await tx.update(providerEvents).set({ processedAt: new Date() }).where(eq(providerEvents.id, providerEvent.id));
+      return { status: 'processed' as const, delivery };
+    });
+    res.status(200).json({ success: true, data: result });
+  } catch (err) {
+    sendError(res, err);
+  }
+});

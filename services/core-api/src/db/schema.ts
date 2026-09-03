@@ -333,6 +333,7 @@ export const orders = pgTable('orders', {
   status: orderStatusEnum('status').default('pending_payment').notNull(),
   paymentMethod: text('payment_method').default('paystack').notNull(),
   trackingCode: text('tracking_code'),
+  returnWindowEndsAt: timestamp('return_window_ends_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });

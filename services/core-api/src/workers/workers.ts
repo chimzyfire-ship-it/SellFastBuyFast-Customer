@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, lte, notInArray, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
   inventoryLevels,
@@ -7,10 +7,12 @@ import {
   orders,
   outboxEvents,
   payouts,
+  returnRequests,
 } from '../db/schema.js';
 import { config } from '../lib/config.js';
 import { PaystackClient } from '../lib/paystack.js';
 import { transitionOrder } from '../modules/orders/orderStateMachine.js';
+import { completeDeliveredOrder } from '../modules/fulfilment/fulfilment.service.js';
 import { settlePayoutTransfer, TransferOutcome } from '../modules/payouts/payouts.service.js';
 
 export async function releaseExpiredReservations(limit = 100): Promise<number> {
@@ -58,6 +60,49 @@ export async function releaseExpiredReservations(limit = 100): Promise<number> {
     });
   }
   return released;
+}
+
+/**
+ * Completes delivered orders only after the persisted inspection deadline and
+ * only when no non-terminal return case exists. completeDeliveredOrder locks
+ * each order again so a buyer opening a return cannot race the escrow release.
+ */
+export async function completeEligibleOrders(limit = 100): Promise<number> {
+  const now = new Date();
+  const candidates = await db
+    .selectDistinct({ id: orders.id })
+    .from(orders)
+    .leftJoin(
+      returnRequests,
+      and(
+        eq(returnRequests.orderId, orders.id),
+        notInArray(returnRequests.status, ['rejected', 'completed'])
+      )
+    )
+    .where(and(
+      eq(orders.status, 'delivered'),
+      lte(orders.returnWindowEndsAt, now),
+      isNull(returnRequests.id)
+    ))
+    .orderBy(asc(orders.returnWindowEndsAt))
+    .limit(limit);
+
+  let completed = 0;
+  for (const candidate of candidates) {
+    try {
+      await db.transaction((tx) => completeDeliveredOrder(tx, {
+        orderId: candidate.id,
+        now,
+        note: 'Automated escrow release after the return window elapsed',
+      }));
+      completed += 1;
+    } catch (err) {
+      // A per-order failure (for example, a return opened after the candidate
+      // query) must not prevent the remaining eligible orders from releasing.
+      console.error(`Could not complete delivered order ${candidate.id}:`, err);
+    }
+  }
+  return completed;
 }
 
 async function claimPayoutEvent() {
@@ -173,11 +218,13 @@ export async function reconcileProcessingPayouts(limit = 20): Promise<number> {
 export function startWorkers(): () => void {
   const run = (job: () => Promise<unknown>) => void job().catch((err) => console.error('Worker job failed:', err));
   run(() => releaseExpiredReservations());
+  run(() => completeEligibleOrders());
   run(() => processPayoutOutbox());
   run(() => reconcileProcessingPayouts());
 
   const timers = [
     setInterval(() => run(() => releaseExpiredReservations()), config.worker.reservationSweepIntervalMs),
+    setInterval(() => run(() => completeEligibleOrders()), config.worker.completionSweepIntervalMs),
     setInterval(() => run(() => processPayoutOutbox()), config.worker.outboxIntervalMs),
     setInterval(() => run(() => reconcileProcessingPayouts()), config.worker.payoutReconcileIntervalMs),
   ];
