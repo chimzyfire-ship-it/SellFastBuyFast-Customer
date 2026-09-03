@@ -107,11 +107,12 @@ vendorRouter.get('/merchant/:merchantId/overview', async (req: Request, res: Res
         .orderBy(desc(merchantVerifications.updatedAt)).limit(1),
     ]);
 
-    const catalogue = { total: productRows.length, draft: 0, pendingApproval: 0, published: 0, archived: 0 };
+    const catalogue = { total: productRows.length, draft: 0, pendingApproval: 0, published: 0, rejected: 0, archived: 0 };
     for (const product of productRows) {
       if (product.status === 'draft') catalogue.draft += 1;
       if (product.status === 'pending_approval') catalogue.pendingApproval += 1;
       if (product.status === 'published') catalogue.published += 1;
+      if (product.status === 'rejected') catalogue.rejected += 1;
       if (product.status === 'archived') catalogue.archived += 1;
     }
     const fulfilment = {

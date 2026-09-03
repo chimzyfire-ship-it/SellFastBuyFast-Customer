@@ -39,8 +39,15 @@ catalogRouter.get('/products', async (req: Request, res: Response) => {
         title: products.title,
         slug: products.slug,
         description: products.description,
+        brand: products.brand,
+        condition: products.condition,
         basePriceMinor: products.basePriceMinor,
         comparePriceMinor: products.comparePriceMinor,
+        weightKg: products.weightKg,
+        dimensionsCm: products.dimensionsCm,
+        returnPolicy: products.returnPolicy,
+        warranty: products.warranty,
+        tags: products.tags,
         currency: products.currency,
         isFeatured: products.isFeatured,
         merchantId: products.merchantId,
@@ -64,7 +71,10 @@ catalogRouter.get('/products', async (req: Request, res: Response) => {
         .select({
           id: productVariants.id,
           productId: productVariants.productId,
+          sku: productVariants.sku,
           title: productVariants.title,
+          optionSize: productVariants.optionSize,
+          optionColor: productVariants.optionColor,
           priceMinor: productVariants.priceMinor,
           attributes: productVariants.attributes,
           availableQuantity: inventoryLevels.availableQuantity,
@@ -94,7 +104,28 @@ catalogRouter.get('/products/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const [product] = await db
-      .select()
+      .select({
+        id: products.id,
+        merchantId: products.merchantId,
+        categoryId: products.categoryId,
+        brandId: products.brandId,
+        title: products.title,
+        slug: products.slug,
+        description: products.description,
+        brand: products.brand,
+        condition: products.condition,
+        basePriceMinor: products.basePriceMinor,
+        comparePriceMinor: products.comparePriceMinor,
+        weightKg: products.weightKg,
+        dimensionsCm: products.dimensionsCm,
+        returnPolicy: products.returnPolicy,
+        warranty: products.warranty,
+        tags: products.tags,
+        currency: products.currency,
+        isFeatured: products.isFeatured,
+        createdAt: products.createdAt,
+        updatedAt: products.updatedAt,
+      })
       .from(products)
       .where(and(eq(products.id, id), eq(products.status, 'published')))
       .limit(1);
@@ -105,8 +136,19 @@ catalogRouter.get('/products/:id', async (req: Request, res: Response) => {
     }
 
     const variants = await db
-      .select()
+      .select({
+        id: productVariants.id,
+        productId: productVariants.productId,
+        sku: productVariants.sku,
+        title: productVariants.title,
+        optionSize: productVariants.optionSize,
+        optionColor: productVariants.optionColor,
+        priceMinor: productVariants.priceMinor,
+        attributes: productVariants.attributes,
+        availableQuantity: inventoryLevels.availableQuantity,
+      })
       .from(productVariants)
+      .leftJoin(inventoryLevels, eq(inventoryLevels.variantId, productVariants.id))
       .where(eq(productVariants.productId, id));
 
     const media = await db

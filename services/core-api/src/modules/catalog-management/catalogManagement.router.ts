@@ -31,12 +31,22 @@ import { recordInventoryTransaction } from '../inventory/inventory.service.js';
 export const catalogManagementRouter = Router();
 catalogManagementRouter.use(requireAuth);
 
+const ConditionSchema = z.enum(['brand_new', 'open_box', 'refurbished']);
+const ReturnPolicySchema = z.enum(['7_day_escrow', 'inspection_only']);
+const WarrantySchema = z.enum(['no_warranty', '30_days', '6_months', '1_year']);
+const TagsSchema = z.array(z.string().trim().min(1).max(60)).max(20)
+  .transform((tags) => [...new Set(tags.map((tag) => tag.toLowerCase()))]);
+const WeightKgSchema = z.number().finite().positive().max(9_999.99);
+
 const VariantSchema = z.object({
   sku: z.string().trim().min(2).max(80).optional(),
   title: z.string().trim().min(1).max(120).default('Default'),
+  optionSize: z.string().trim().min(1).max(20).optional(),
+  optionColor: z.string().trim().min(1).max(30).optional(),
   priceMinor: z.number().int().positive().safe(),
   attributes: z.record(z.unknown()).default({}),
   availableQuantity: z.number().int().min(0).max(1_000_000).default(0),
+  lowStockThreshold: z.number().int().min(0).max(100_000).default(3),
 });
 const MediaSchema = z.object({
   mediaUrl: z.string().url().max(2000),
@@ -48,8 +58,15 @@ const CreateProductSchema = z.object({
   categoryId: z.string().uuid().optional(),
   brandId: z.string().uuid().optional(),
   title: z.string().trim().min(3).max(180),
+  brand: z.string().trim().min(2).max(100).default('SellFast Signature'),
+  condition: ConditionSchema.default('brand_new'),
   description: z.string().trim().min(10).max(10_000),
   comparePriceMinor: z.number().int().positive().safe().optional(),
+  weightKg: WeightKgSchema.default(0.85),
+  dimensionsCm: z.string().trim().min(3).max(60).default('33 × 21 × 12'),
+  returnPolicy: ReturnPolicySchema.default('7_day_escrow'),
+  warranty: WarrantySchema.default('30_days'),
+  tags: TagsSchema.default([]),
   variants: z.array(VariantSchema).min(1).max(100),
   media: z.array(MediaSchema).max(30).default([]),
 }).superRefine((value, ctx) => {
@@ -62,12 +79,22 @@ const UpdateProductSchema = z.object({
   categoryId: z.string().uuid().nullable().optional(),
   brandId: z.string().uuid().nullable().optional(),
   title: z.string().trim().min(3).max(180).optional(),
+  brand: z.string().trim().min(2).max(100).optional(),
+  condition: ConditionSchema.optional(),
   description: z.string().trim().min(10).max(10_000).optional(),
   comparePriceMinor: z.number().int().positive().safe().nullable().optional(),
+  weightKg: WeightKgSchema.optional(),
+  dimensionsCm: z.string().trim().min(3).max(60).optional(),
+  returnPolicy: ReturnPolicySchema.optional(),
+  warranty: WarrantySchema.optional(),
+  tags: TagsSchema.optional(),
 }).refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 const UpdateVariantSchema = z.object({
   sku: z.string().trim().min(2).max(80).optional(),
   title: z.string().trim().min(1).max(120).optional(),
+  optionSize: z.string().trim().min(1).max(20).nullable().optional(),
+  optionColor: z.string().trim().min(1).max(30).nullable().optional(),
+  attributes: z.record(z.unknown()).optional(),
   priceMinor: z.number().int().positive().safe().optional(),
 }).refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 const UpdateMediaSchema = z.object({
@@ -75,7 +102,10 @@ const UpdateMediaSchema = z.object({
   altText: z.string().trim().max(240).nullable().optional(),
   sortOrder: z.number().int().min(0).max(1_000).optional(),
 }).refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
-const InventorySchema = z.object({ availableQuantity: z.number().int().min(0).max(1_000_000) });
+const InventorySchema = z.object({
+  availableQuantity: z.number().int().min(0).max(1_000_000),
+  lowStockThreshold: z.number().int().min(0).max(100_000).optional(),
+});
 const ModerationSchema = z.object({
   decision: z.enum(['publish', 'reject']),
   note: z.string().trim().min(3).max(1000),
@@ -125,6 +155,7 @@ async function detailedProducts(merchantId: string) {
       ...item.variant,
       availableQuantity: item.inventory?.availableQuantity ?? 0,
       reservedQuantity: item.inventory?.reservedQuantity ?? 0,
+      lowStockThreshold: item.inventory?.lowStockThreshold ?? 3,
     })),
     media: media.filter((item) => item.productId === product.id),
   }));
@@ -170,11 +201,18 @@ catalogManagementRouter.post(
           merchantId: merchant.id,
           categoryId: parsed.data.categoryId,
           brandId: parsed.data.brandId,
+          brand: parsed.data.brand,
+          condition: parsed.data.condition,
           title: parsed.data.title,
           slug: slugFor(parsed.data.title),
           description: parsed.data.description,
           basePriceMinor,
           comparePriceMinor: parsed.data.comparePriceMinor,
+          weightKg: parsed.data.weightKg.toFixed(2),
+          dimensionsCm: parsed.data.dimensionsCm,
+          returnPolicy: parsed.data.returnPolicy,
+          warranty: parsed.data.warranty,
+          tags: parsed.data.tags,
           currency: 'NGN',
           status: 'draft',
         }).returning();
@@ -182,6 +220,8 @@ catalogManagementRouter.post(
           productId: product.id,
           sku: variant.sku,
           title: variant.title,
+          optionSize: variant.optionSize,
+          optionColor: variant.optionColor,
           priceMinor: variant.priceMinor,
           attributes: variant.attributes,
         }))).returning();
@@ -189,6 +229,7 @@ catalogManagementRouter.post(
           variantId: variant.id,
           availableQuantity: parsed.data.variants[index].availableQuantity,
           reservedQuantity: 0,
+          lowStockThreshold: parsed.data.variants[index].lowStockThreshold,
         })));
         await Promise.all(variants.map((variant, index) => recordInventoryTransaction(tx, {
           variantId: variant.id,
@@ -239,7 +280,7 @@ catalogManagementRouter.patch(
           .where(eq(products.id, variant.productId)).limit(1).for('update');
         if (!product) throw errors.notFound('Product not found.');
         assertMerchantAccess(req, product.merchantId);
-        if (!['draft', 'published'].includes(product.status)) {
+        if (!['draft', 'published', 'rejected'].includes(product.status)) {
           throw errors.conflict('PRODUCT_NOT_EDITABLE', 'A product under review cannot be edited.');
         }
         if (parsed.data.sku) {
@@ -259,20 +300,42 @@ catalogManagementRouter.patch(
         if (product.comparePriceMinor !== null && product.comparePriceMinor <= basePriceMinor) {
           throw errors.validation('Compare price must exceed the lowest variant price.');
         }
-        await tx.update(products).set({ basePriceMinor, updatedAt: new Date() }).where(eq(products.id, product.id));
+        const returnedToDraft = product.status === 'published' || product.status === 'rejected';
+        const [updatedProduct] = await tx.update(products).set({
+          basePriceMinor,
+          status: returnedToDraft ? 'draft' : product.status,
+          rejectionReason: returnedToDraft ? null : product.rejectionReason,
+          updatedAt: new Date(),
+        }).where(eq(products.id, product.id)).returning();
+        if (returnedToDraft) {
+          await tx.insert(productModerationLogs).values({
+            productId: product.id,
+            action: 'reapproval_required',
+            actorId: req.user!.id,
+            note: product.status === 'rejected'
+              ? 'Rejected product variant was corrected.'
+              : 'Published product variant was changed.',
+          });
+          await notifyMerchantMembers(tx, product.merchantId, {
+            type: 'catalog_reapproval_required',
+            title: 'Product requires re-approval',
+            body: `“${product.title}” was returned to draft because its variant details changed. Submit it for Operations review.`,
+            data: { productId: product.id },
+          });
+        }
         await tx.insert(auditEvents).values({
           actorId: req.user!.id,
           action: 'catalog.variant_updated',
           resourceType: 'product_variant',
           resourceId: variant.id,
-          metadata: { productId: product.id, fields: Object.keys(parsed.data), basePriceMinor },
+          metadata: { productId: product.id, fields: Object.keys(parsed.data), basePriceMinor, returnedToDraft },
           ipAddress: req.ip,
         });
         await tx.insert(outboxEvents).values({
-          type: 'catalog.product_updated',
+          type: returnedToDraft ? 'catalog.product_reapproval_required' : 'catalog.product_updated',
           payload: { productId: product.id, merchantId: product.merchantId, changed: 'variant' },
         });
-        return { ...updated, basePriceMinor };
+        return { ...updated, basePriceMinor, productStatus: updatedProduct.status };
       });
       res.json({ success: true, data: result });
     } catch (err) {
@@ -297,21 +360,21 @@ catalogManagementRouter.patch(
           .where(eq(products.id, media.productId)).limit(1).for('update');
         if (!product) throw errors.notFound('Product not found.');
         assertMerchantAccess(req, product.merchantId);
-        if (!['draft', 'published'].includes(product.status)) {
+        if (!['draft', 'published', 'rejected'].includes(product.status)) {
           throw errors.conflict('PRODUCT_NOT_EDITABLE', 'A product under review cannot be edited.');
         }
         const visualChanged = parsed.data.mediaUrl !== undefined && parsed.data.mediaUrl !== media.mediaUrl;
-        const returnedToDraft = product.status === 'published' && visualChanged;
+        const returnedToDraft = product.status === 'rejected' || (product.status === 'published' && visualChanged);
         const [updatedMedia] = await tx.update(productMedia).set(parsed.data).where(eq(productMedia.id, media.id)).returning();
         let updatedProduct = product;
         if (returnedToDraft) {
-          [updatedProduct] = await tx.update(products).set({ status: 'draft', updatedAt: new Date() })
+          [updatedProduct] = await tx.update(products).set({ status: 'draft', rejectionReason: null, updatedAt: new Date() })
             .where(eq(products.id, product.id)).returning();
           await tx.insert(productModerationLogs).values({
             productId: product.id,
             action: 'reapproval_required',
             actorId: req.user!.id,
-            note: 'Published product image changed.',
+            note: product.status === 'rejected' ? 'Rejected product media was corrected.' : 'Published product image changed.',
           });
           await notifyMerchantMembers(tx, product.merchantId, {
             type: 'catalog_reapproval_required',
@@ -354,20 +417,20 @@ catalogManagementRouter.post(
           .where(eq(products.id, req.params.id)).limit(1).for('update');
         if (!product) throw errors.notFound('Product not found.');
         assertMerchantAccess(req, product.merchantId);
-        if (!['draft', 'published'].includes(product.status)) {
+        if (!['draft', 'published', 'rejected'].includes(product.status)) {
           throw errors.conflict('PRODUCT_NOT_EDITABLE', 'A product under review cannot be edited.');
         }
-        const returnedToDraft = product.status === 'published';
+        const returnedToDraft = product.status === 'published' || product.status === 'rejected';
         const [media] = await tx.insert(productMedia).values({ ...parsed.data, productId: product.id }).returning();
         let updatedProduct = product;
         if (returnedToDraft) {
-          [updatedProduct] = await tx.update(products).set({ status: 'draft', updatedAt: new Date() })
+          [updatedProduct] = await tx.update(products).set({ status: 'draft', rejectionReason: null, updatedAt: new Date() })
             .where(eq(products.id, product.id)).returning();
           await tx.insert(productModerationLogs).values({
             productId: product.id,
             action: 'reapproval_required',
             actorId: req.user!.id,
-            note: 'Media was added to a published product.',
+            note: product.status === 'rejected' ? 'Rejected product media was corrected.' : 'Media was added to a published product.',
           });
           await notifyMerchantMembers(tx, product.merchantId, {
             type: 'catalog_reapproval_required',
@@ -409,7 +472,7 @@ catalogManagementRouter.patch(
       const [product] = await tx.select().from(products).where(eq(products.id, req.params.id)).limit(1).for('update');
       if (!product) throw errors.notFound('Product not found.');
       assertMerchantAccess(req, product.merchantId);
-      if (!['draft', 'published'].includes(product.status)) {
+      if (!['draft', 'published', 'rejected'].includes(product.status)) {
         throw errors.conflict('PRODUCT_NOT_EDITABLE', 'A product under review cannot be edited.');
       }
       if (parsed.data.categoryId) {
@@ -429,10 +492,14 @@ catalogManagementRouter.patch(
       ) {
         throw errors.validation('Compare price must exceed the current base price.');
       }
-      const returnedToDraft = product.status === 'published' && requiresRemoderation(parsed.data);
+      const { weightKg, ...productPatch } = parsed.data;
+      const returnedToDraft = product.status === 'rejected' ||
+        (product.status === 'published' && requiresRemoderation(parsed.data));
       const [saved] = await tx.update(products).set({
-        ...parsed.data,
+        ...productPatch,
+        ...(weightKg === undefined ? {} : { weightKg: weightKg.toFixed(2) }),
         status: returnedToDraft ? 'draft' : product.status,
+        rejectionReason: returnedToDraft ? null : product.rejectionReason,
         updatedAt: new Date(),
       }).where(eq(products.id, product.id)).returning();
       await tx.insert(auditEvents).values({
@@ -448,7 +515,9 @@ catalogManagementRouter.patch(
           productId: product.id,
           action: 'reapproval_required',
           actorId: req.user!.id,
-          note: 'Published title, description, or category changed.',
+          note: product.status === 'rejected'
+            ? 'Rejected product specifications were corrected.'
+            : 'Published listing taxonomy or specifications changed.',
         });
         await tx.insert(outboxEvents).values({
           type: 'catalog.product_reapproval_required',
@@ -488,12 +557,17 @@ catalogManagementRouter.patch(
         .where(eq(inventoryLevels.variantId, record.variant.id)).limit(1).for('update');
       const [inventory] = existing
         ? await tx.update(inventoryLevels)
-          .set({ availableQuantity: parsed.data.availableQuantity, updatedAt: new Date() })
+          .set({
+            availableQuantity: parsed.data.availableQuantity,
+            ...(parsed.data.lowStockThreshold === undefined ? {} : { lowStockThreshold: parsed.data.lowStockThreshold }),
+            updatedAt: new Date(),
+          })
           .where(eq(inventoryLevels.variantId, record.variant.id)).returning()
         : await tx.insert(inventoryLevels).values({
           variantId: record.variant.id,
           availableQuantity: parsed.data.availableQuantity,
           reservedQuantity: 0,
+          lowStockThreshold: parsed.data.lowStockThreshold ?? 3,
         }).returning();
       await recordInventoryTransaction(tx, {
         variantId: record.variant.id,
@@ -509,7 +583,11 @@ catalogManagementRouter.patch(
         action: 'catalog.inventory_set',
         resourceType: 'product_variant',
         resourceId: record.variant.id,
-        metadata: { availableQuantity: inventory.availableQuantity, reservedQuantity: inventory.reservedQuantity },
+        metadata: {
+          availableQuantity: inventory.availableQuantity,
+          reservedQuantity: inventory.reservedQuantity,
+          lowStockThreshold: inventory.lowStockThreshold,
+        },
         ipAddress: req.ip,
       });
       await tx.insert(outboxEvents).values({
@@ -519,6 +597,7 @@ catalogManagementRouter.patch(
           variantId: record.variant.id,
           availableQuantity: inventory.availableQuantity,
           reservedQuantity: inventory.reservedQuantity,
+          lowStockThreshold: inventory.lowStockThreshold,
         },
       });
       return inventory;
@@ -582,6 +661,55 @@ catalogManagementRouter.post(
   }
 );
 
+catalogManagementRouter.get(
+  '/moderation/queue',
+  requireRole('catalogue_moderator', 'operations_admin'),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).safeParse(req.query);
+      if (!parsed.success) throw errors.validation(parsed.error.message);
+      const queue = await db
+        .select({ product: products, merchantName: merchants.businessName, categoryName: categories.name })
+        .from(products)
+        .innerJoin(merchants, eq(merchants.id, products.merchantId))
+        .leftJoin(categories, eq(categories.id, products.categoryId))
+        .where(eq(products.status, 'pending_approval'))
+        .orderBy(asc(products.createdAt))
+        .limit(parsed.data.limit);
+      if (queue.length === 0) {
+        res.json({ success: true, data: [] });
+        return;
+      }
+
+      const productIds = queue.map((item) => item.product.id);
+      const [variants, media] = await Promise.all([
+        db.select({ variant: productVariants, inventory: inventoryLevels })
+          .from(productVariants)
+          .leftJoin(inventoryLevels, eq(inventoryLevels.variantId, productVariants.id))
+          .where(inArray(productVariants.productId, productIds)),
+        db.select().from(productMedia).where(inArray(productMedia.productId, productIds)).orderBy(asc(productMedia.sortOrder)),
+      ]);
+      res.json({
+        success: true,
+        data: queue.map(({ product, merchantName, categoryName }) => ({
+          ...product,
+          merchantName,
+          categoryName,
+          variants: variants.filter((item) => item.variant.productId === product.id).map((item) => ({
+            ...item.variant,
+            availableQuantity: item.inventory?.availableQuantity ?? 0,
+            reservedQuantity: item.inventory?.reservedQuantity ?? 0,
+            lowStockThreshold: item.inventory?.lowStockThreshold ?? 3,
+          })),
+          media: media.filter((item) => item.productId === product.id),
+        })),
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  }
+);
+
 catalogManagementRouter.post(
   '/products/:id/moderate',
   requireRole('catalogue_moderator', 'operations_admin'),
@@ -593,9 +721,15 @@ catalogManagementRouter.post(
       const result = await db.transaction(async (tx) => {
         const [product] = await tx.select().from(products).where(eq(products.id, req.params.id)).limit(1).for('update');
         if (!product) throw errors.notFound('Product not found.');
-        const next = parsed.data.decision === 'publish' ? 'published' : 'draft';
+        const next: ProductStatus = parsed.data.decision === 'publish' ? 'published' : 'rejected';
         assertProductTransition(product.status as ProductStatus, next);
-        const [updated] = await tx.update(products).set({ status: next, updatedAt: new Date() })
+        const [updated] = await tx.update(products).set({
+          status: next,
+          rejectionReason: parsed.data.decision === 'reject' ? parsed.data.note : null,
+          moderatedBy: req.user!.id,
+          moderatedAt: new Date(),
+          updatedAt: new Date(),
+        })
           .where(eq(products.id, product.id)).returning();
         await tx.insert(auditEvents).values({
           actorId: req.user!.id,
@@ -625,7 +759,7 @@ catalogManagementRouter.post(
           title: parsed.data.decision === 'publish' ? 'Product published' : 'Product needs changes',
           body: parsed.data.decision === 'publish'
             ? `“${updated.title}” is now visible to shoppers.`
-            : `“${updated.title}” was returned to draft: ${parsed.data.note}`,
+            : `“${updated.title}” was rejected: ${parsed.data.note}. Correct the listing to return it to draft, then submit it again.`,
           data: { productId: updated.id, decision: parsed.data.decision },
         });
         return updated;

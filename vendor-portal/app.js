@@ -1119,8 +1119,13 @@ function renderAddProductView() {
   const availableQuantity = draft.availableQuantity || '15';
   const lowStockThreshold = draft.lowStockThreshold || '3';
   const variantMode = draft.variantMode || 'single'; // 'single' | 'variants'
-  const selectedSizes = Array.isArray(draft.selectedSizes) ? draft.selectedSizes : ['40', '41', '42', '43', '44'];
-  const selectedColors = Array.isArray(draft.selectedColors) ? draft.selectedColors : ['Black'];
+  const selectedSizes = Array.isArray(draft.selectedSizes) && draft.selectedSizes.length > 0 ? draft.selectedSizes : ['40', '41', '42', '43', '44'];
+  const selectedColors = Array.isArray(draft.selectedColors) && draft.selectedColors.length > 0 ? draft.selectedColors : ['Black'];
+  const matrixOptions = selectedSizes.flatMap((size) => selectedColors.map((color) => ({ size, color }))).slice(0, 100);
+  const matrixVariantByOption = new Map((draft.variantMatrix || []).map((variant) => [
+    `${variant.optionSize || ''}:${variant.optionColor || ''}`,
+    variant,
+  ]));
   const bullet1 = draft.bullet1 || '100% Genuine Handcrafted Italian Calfskin Leather';
   const bullet2 = draft.bullet2 || 'Cushioned Memory Foam Insole with Anti-Skid Rubber Sole';
   const bullet3 = draft.bullet3 || 'Reinforced Goodyear Welted Construction for Longevity';
@@ -1407,14 +1412,20 @@ function renderAddProductView() {
                     </tr>
                   </thead>
                   <tbody id="variant-matrix-tbody">
-                    ${selectedSizes.slice(0, 4).map((sz, idx) => `
+                    ${matrixOptions.map(({ size, color }, idx) => {
+                      const savedVariant = matrixVariantByOption.get(`${size}:${color}`);
+                      const matrixSku = savedVariant?.sku || `${sku || 'SFBF-OXF'}-${size}-${color.replace(/\s+/g, '-').toUpperCase()}`;
+                      const matrixPrice = savedVariant ? String(Math.round(savedVariant.priceMinor / 100)) : (priceNaira || '45000');
+                      const matrixStock = savedVariant ? String(savedVariant.availableQuantity) : String(Math.max(2, 6 - idx));
+                      return `
                       <tr>
-                        <td><strong>EU ${sz} / ${selectedColors[0] || 'Black'}</strong></td>
-                        <td><input class="variant-matrix-input" value="${sku || 'SFBF-OXF'}-${sz}" /></td>
-                        <td><input class="variant-matrix-input" type="number" value="${priceNaira || '45000'}" /></td>
-                        <td><input class="variant-matrix-input" type="number" value="${Math.max(2, 6 - idx)}" /></td>
+                        <td><strong>EU ${size} / ${color}</strong></td>
+                        <td><input class="variant-matrix-input" data-variant-field="sku" data-option-size="${escapeAttribute(size)}" data-option-color="${escapeAttribute(color)}" value="${escapeAttribute(matrixSku)}" /></td>
+                        <td><input class="variant-matrix-input" data-variant-field="price" type="number" min="1" value="${escapeAttribute(matrixPrice)}" /></td>
+                        <td><input class="variant-matrix-input" data-variant-field="stock" type="number" min="0" value="${escapeAttribute(matrixStock)}" /></td>
                       </tr>
-                    `).join('')}
+                    `;
+                    }).join('')}
                   </tbody>
                 </table>
               </div>
@@ -2866,12 +2877,24 @@ document.addEventListener('click', async (event) => {
       state.productDraft = {
         title: prod.title || '',
         categoryId: prod.categoryId || '',
+        brand: prod.brand || 'SellFast Signature',
+        condition: prod.condition || 'brand_new',
+        tags: Array.isArray(prod.tags) ? prod.tags.join(', ') : '',
         sku: variant?.sku || '',
         priceNaira: variant ? String(Math.round(variant.priceMinor / 100)) : '',
         comparePriceNaira: prod.comparePriceMinor ? String(Math.round(prod.comparePriceMinor / 100)) : '',
         availableQuantity: variant ? String(variant.availableQuantity) : '10',
+        lowStockThreshold: variant ? String(variant.lowStockThreshold ?? 3) : '3',
+        variantMode: (prod.variants?.length ?? 0) > 1 ? 'variants' : 'single',
+        selectedSizes: [...new Set((prod.variants || []).map((item) => item.optionSize).filter(Boolean))],
+        selectedColors: [...new Set((prod.variants || []).map((item) => item.optionColor).filter(Boolean))],
+        variantMatrix: prod.variants || [],
         description: prod.description || '',
         imageUrl: media?.mediaUrl || '',
+        weightKg: prod.weightKg ? String(prod.weightKg) : '0.85',
+        dimensionsCm: prod.dimensionsCm || '33 × 21 × 12',
+        returnPolicy: prod.returnPolicy || '7_day_escrow',
+        warranty: prod.warranty || '30_days',
         submitForReview: prod.status === 'published' || prod.status === 'pending_approval',
       };
       state.activeView = 'add-product';
@@ -2990,17 +3013,15 @@ document.addEventListener('click', async (event) => {
     const priceVal = document.getElementById('prod-price')?.value || '45000';
     const tbody = document.getElementById('variant-matrix-tbody');
     if (tbody) {
-      let rowsHtml = '';
-      state.productDraft.selectedSizes.forEach((sz, idx) => {
-        const color = state.productDraft.selectedColors[0] || 'Black';
-        rowsHtml += `
+      const rowsHtml = state.productDraft.selectedSizes.flatMap((size) =>
+        state.productDraft.selectedColors.map((color) => ({ size, color }))
+      ).slice(0, 100).map(({ size, color }, idx) => `
           <tr>
-            <td><strong>EU ${sz} / ${color}</strong></td>
-            <td><input class="variant-matrix-input" value="${skuVal}-${sz}" /></td>
-            <td><input class="variant-matrix-input" type="number" value="${priceVal}" /></td>
-            <td><input class="variant-matrix-input" type="number" value="${Math.max(2, 6 - idx)}" /></td>
-          </tr>`;
-      });
+            <td><strong>EU ${size} / ${color}</strong></td>
+            <td><input class="variant-matrix-input" data-variant-field="sku" data-option-size="${escapeAttribute(size)}" data-option-color="${escapeAttribute(color)}" value="${escapeAttribute(`${skuVal}-${size}-${color.replace(/\s+/g, '-').toUpperCase()}`)}" /></td>
+            <td><input class="variant-matrix-input" data-variant-field="price" type="number" min="1" value="${escapeAttribute(priceVal)}" /></td>
+            <td><input class="variant-matrix-input" data-variant-field="stock" type="number" min="0" value="${Math.max(2, 6 - idx)}" /></td>
+          </tr>`).join('');
       tbody.innerHTML = rowsHtml;
     }
 
@@ -3577,6 +3598,10 @@ document.addEventListener('submit', async (event) => {
     const priceNaira = Number(form.elements.priceNaira.value);
     const comparePriceNaira = Number(form.elements.comparePriceNaira?.value) || 0;
     const availableQuantity = Number(form.elements.availableQuantity.value);
+    const configuredLowStockThreshold = Number(form.elements.lowStockThreshold?.value);
+    const lowStockThreshold = Number.isInteger(configuredLowStockThreshold) && configuredLowStockThreshold >= 0
+      ? configuredLowStockThreshold
+      : 3;
     const description = form.elements.description.value.trim();
     const imageUrl = form.elements.imageUrl.value.trim();
     const bullet1 = form.elements.bullet1?.value.trim() || '';
@@ -3587,11 +3612,45 @@ document.addEventListener('submit', async (event) => {
     const returnPolicy = form.elements.returnPolicy?.value || '7_day_escrow';
     const warranty = form.elements.warranty?.value || '30_days';
     const submitForReview = form.elements.submitForReview.checked;
+    const variantMode = state.productDraft?.variantMode || 'single';
 
     const priceMinor = Math.round(priceNaira * 100);
     const comparePriceMinor = comparePriceNaira > 0 ? Math.round(comparePriceNaira * 100) : undefined;
+    const tagList = [...new Set(tags.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean))];
+    const weightKgNumber = Number(weightKg);
+    const matrixRows = Array.from(form.querySelectorAll('#variant-matrix-tbody tr'));
+    const variants = variantMode === 'variants'
+      ? matrixRows.map((row) => {
+          const skuInput = row.querySelector('[data-variant-field="sku"]');
+          const priceInput = row.querySelector('[data-variant-field="price"]');
+          const stockInput = row.querySelector('[data-variant-field="stock"]');
+          const optionSize = skuInput?.dataset.optionSize || '';
+          const optionColor = skuInput?.dataset.optionColor || '';
+          const matrixPriceMinor = Math.round(Number(priceInput?.value) * 100);
+          return {
+            sku: skuInput?.value.trim() || '',
+            title: `EU ${optionSize} / ${optionColor}`,
+            optionSize,
+            optionColor,
+            priceMinor: matrixPriceMinor,
+            availableQuantity: Number(stockInput?.value),
+            lowStockThreshold,
+          };
+        })
+      : [{
+          sku,
+          title: 'Default',
+          priceMinor,
+          availableQuantity,
+          lowStockThreshold,
+        }];
 
-    if (!title || !categoryId || !sku || !Number.isFinite(priceNaira) || !Number.isSafeInteger(priceMinor) || priceNaira <= 0 || !Number.isSafeInteger(availableQuantity) || availableQuantity < 0 || !description || !safeUrl(imageUrl)) {
+    if (!title || !brand || !categoryId || !Number.isFinite(weightKgNumber) || weightKgNumber <= 0 ||
+      !Number.isFinite(priceNaira) || !Number.isSafeInteger(priceMinor) || priceNaira <= 0 ||
+      !description || !safeUrl(imageUrl) || variants.length === 0 || variants.some((variant) =>
+        !variant.sku || !Number.isSafeInteger(variant.priceMinor) || variant.priceMinor <= 0 ||
+        !Number.isSafeInteger(variant.availableQuantity) || variant.availableQuantity < 0
+      )) {
       state.formError = 'Please fill in all required product specification fields with valid data.';
       render();
       return;
@@ -3619,20 +3678,41 @@ document.addEventListener('submit', async (event) => {
               title,
               description: formattedDescription,
               categoryId,
+              brand,
+              condition,
               comparePriceMinor: comparePriceMinor || null,
+              weightKg: weightKgNumber,
+              dimensionsCm,
+              returnPolicy,
+              warranty,
+              tags: tagList,
             },
           });
+          if ((existingProduct?.variants?.length ?? 0) !== variants.length) {
+            throw new Error('Variant rows cannot be added or removed after creation yet. Create a new listing for a different matrix.');
+          }
           if (variantId) {
-            await api(`/v1/catalog-management/variants/${variantId}/inventory`, {
-              method: 'PATCH',
-              idempotencyScope: 'catalog-inventory',
-              body: { availableQuantity },
-            });
-            await api(`/v1/catalog-management/variants/${variantId}`, {
-              method: 'PATCH',
-              idempotencyScope: 'catalog-variant-update',
-              body: { sku, priceMinor },
-            });
+            await Promise.all(variants.map((variant, index) => {
+              const existingVariant = existingProduct.variants[index];
+              return Promise.all([
+                api(`/v1/catalog-management/variants/${existingVariant.id}/inventory`, {
+                  method: 'PATCH',
+                  idempotencyScope: 'catalog-inventory',
+                  body: { availableQuantity: variant.availableQuantity, lowStockThreshold: variant.lowStockThreshold },
+                }),
+                api(`/v1/catalog-management/variants/${existingVariant.id}`, {
+                  method: 'PATCH',
+                  idempotencyScope: 'catalog-variant-update',
+                  body: {
+                    sku: variant.sku,
+                    title: variant.title,
+                    optionSize: variant.optionSize || null,
+                    optionColor: variant.optionColor || null,
+                    priceMinor: variant.priceMinor,
+                  },
+                }),
+              ]);
+            }));
           }
           const mediaUpdate = imageMedia?.id
             ? await api(`/v1/catalog-management/media/${imageMedia.id}`, {
@@ -3652,27 +3732,8 @@ document.addEventListener('submit', async (event) => {
             });
           }
         } catch (apiError) {
-          console.warn('Core API unreachable, updating directly in memory/Supabase:', apiError);
-          if (state.client) {
-            await state.client.from('products').update({
-              title,
-              description: formattedDescription,
-              category_id: categoryId,
-              compare_price_minor: comparePriceMinor || null,
-              status: submitForReview ? 'pending_approval' : (existingProduct?.status || 'draft'),
-            }).eq('id', prodId);
-          }
-          if (existingProduct) {
-            existingProduct.title = title;
-            existingProduct.description = formattedDescription;
-            existingProduct.categoryId = categoryId;
-            existingProduct.comparePriceMinor = comparePriceMinor;
-            if (existingProduct.variants?.[0]) {
-              existingProduct.variants[0].sku = sku;
-              existingProduct.variants[0].priceMinor = priceMinor;
-              existingProduct.variants[0].availableQuantity = availableQuantity;
-            }
-          }
+          console.warn('Core API update failed:', apiError);
+          throw apiError;
         }
         state.editingProductId = null;
         state.productDraft = null;
@@ -3690,9 +3751,16 @@ document.addEventListener('submit', async (event) => {
           body: {
             categoryId,
             title,
+            brand,
+            condition,
             description: formattedDescription,
             comparePriceMinor,
-            variants: [{ sku, title: 'Default', priceMinor, availableQuantity }],
+            weightKg: weightKgNumber,
+            dimensionsCm,
+            returnPolicy,
+            warranty,
+            tags: tagList,
+            variants,
             media: [{ mediaUrl: imageUrl, mediaType: 'image', altText: title, sortOrder: 0 }],
           },
         });
@@ -3703,35 +3771,8 @@ document.addEventListener('submit', async (event) => {
           });
         }
       } catch (apiError) {
-        console.warn('Core API unreachable, creating directly in memory/Supabase:', apiError);
-        const prodId = crypto.randomUUID();
-        const variantId = crypto.randomUUID();
-        const mediaId = crypto.randomUUID();
-        const status = submitForReview ? 'pending_approval' : 'draft';
-
-        if (state.client) {
-          await state.client.from('products').insert([{
-            id: prodId,
-            merchant_id: state.merchant.id,
-            category_id: categoryId,
-            title,
-            description: formattedDescription,
-            compare_price_minor: comparePriceMinor || null,
-            status,
-          }]);
-        }
-
-        state.products.unshift({
-          id: prodId,
-          title,
-          description: formattedDescription,
-          status,
-          categoryId,
-          comparePriceMinor,
-          variants: [{ id: variantId, sku, title: 'Default', priceMinor, availableQuantity, reservedQuantity: 0 }],
-          media: [{ id: mediaId, mediaUrl: imageUrl, mediaType: 'image' }],
-          createdAt: new Date().toISOString(),
-        });
+        console.warn('Core API create failed:', apiError);
+        throw apiError;
       }
       state.editingProductId = null;
       state.productDraft = null;

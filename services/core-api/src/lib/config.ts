@@ -47,7 +47,7 @@ function secretMap(name: string): Record<string, string> {
 
 export const isProduction = process.env.NODE_ENV === 'production';
 const paymentMode = process.env.PAYMENT_MODE === 'paystack' ? 'paystack' : 'mock';
-const platformCommissionBps = boundedInteger('PLATFORM_COMMISSION_BPS', 1000, 0, 10_000);
+const platformCommissionBps = boundedInteger('PLATFORM_COMMISSION_BPS', 500, 0, 10_000);
 const returnWindowDays = boundedInteger('RETURN_WINDOW_DAYS', 7, 1, 30);
 
 export const config = {
