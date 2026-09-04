@@ -9,7 +9,6 @@ import {
   merchantProfileDrafts,
   merchantVerifications,
   merchants,
-  outboxEvents,
   orders,
   products,
   profiles,
@@ -124,20 +123,10 @@ const MerchantOnboardingSchema = z.object({
   businessName: z.string().trim().min(3).max(180),
   description: z.string().trim().min(10).max(5000).optional(),
   contactEmail: z.string().trim().email().max(254),
-  contactPhone: z.string().trim().min(7).max(40),
-  state: z.string().trim().min(2).max(80),
+  contactPhone: NigerianPhoneSchema,
+  state: NigerianStateSchema,
   lga: z.string().trim().min(2).max(120),
-  address: z.string().trim().min(8).max(500),
-  cacNumber: z.string().trim().min(4).max(80),
-  tinNumber: z.string().trim().min(5).max(80).optional(),
-  idType: z.enum(['national_id', 'passport', 'drivers_license', 'voters_card']),
-  idDocumentUrl: z.string().url().max(2000),
-  utilityBillUrl: z.string().url().max(2000),
-});
-
-const VerificationReviewSchema = z.object({
-  decision: z.enum(['approved', 'rejected']),
-  note: z.string().trim().min(3).max(1000),
+  address: z.string().trim().min(5).max(240),
 });
 
 function merchantSlugFor(businessName: string): string {
@@ -311,34 +300,19 @@ vendorRouter.post('/onboarding', idempotency('vendor-onboarding'), async (req: R
         status: 'pending_verification',
       }).returning();
       await tx.insert(merchantMembers).values({ merchantId: merchant.id, userId: req.user!.id, role: 'owner' });
-      const [verification] = await tx.insert(merchantVerifications).values({
-        merchantId: merchant.id,
-        cacNumber: parsed.data.cacNumber,
-        tinNumber: parsed.data.tinNumber,
-        idType: parsed.data.idType,
-        idDocumentUrl: parsed.data.idDocumentUrl,
-        utilityBillUrl: parsed.data.utilityBillUrl,
-        status: 'pending',
-      }).returning();
       await tx.insert(auditEvents).values({
         actorId: req.user!.id,
-        action: 'merchant.onboarding_submitted',
+        action: 'merchant.onboarding_started',
         resourceType: 'merchant',
         resourceId: merchant.id,
-        metadata: { verificationId: verification.id },
         ipAddress: req.ip,
       });
-      await tx.insert(outboxEvents).values({
-        type: 'merchant.verification_submitted',
-        payload: { merchantId: merchant.id, verificationId: verification.id, submittedBy: req.user!.id },
-      });
-      return { merchant, verification };
+      return { merchant };
     });
     res.status(201).json({
       success: true,
       data: {
         merchant: { ...safeMerchant(result.merchant), memberRole: 'owner' },
-        verification: { status: result.verification.status, updatedAt: result.verification.updatedAt },
       },
     });
   } catch (err) {
@@ -748,60 +722,10 @@ vendorRouter.post('/merchant/:merchantId/verification', (_req: Request, _res: Re
   throw errors.conflict('VERIFICATION_ENDPOINT_RETIRED', 'Use POST /registration to submit legal-entity verification.');
 });
 
-vendorRouter.post(
-  '/merchant/:merchantId/verification/review',
-  requireRole('operations_admin', 'security_admin'),
-  idempotency('vendor-verification-review'),
-  async (req: Request, res: Response) => {
-    try {
-      const parsed = VerificationReviewSchema.safeParse(req.body);
-      if (!parsed.success) throw errors.validation(parsed.error.message);
-      const result = await db.transaction(async (tx) => {
-        const [merchant] = await tx.select().from(merchants)
-          .where(eq(merchants.id, req.params.merchantId)).limit(1).for('update');
-        if (!merchant) throw errors.notFound('Merchant not found.');
-        const [verification] = await tx.select().from(merchantVerifications)
-          .where(eq(merchantVerifications.merchantId, merchant.id))
-          .orderBy(desc(merchantVerifications.updatedAt)).limit(1).for('update');
-        if (!verification) throw errors.notFound('Merchant verification not found.');
-        if (verification.status !== 'pending') {
-          throw errors.conflict('VERIFICATION_NOT_REVIEWABLE', 'Only pending verifications can be reviewed.');
-        }
-        const now = new Date();
-        const [savedVerification] = await tx.update(merchantVerifications).set({
-          status: parsed.data.decision,
-          rejectionReason: parsed.data.decision === 'rejected' ? parsed.data.note : null,
-          reviewedBy: req.user!.id,
-          reviewedAt: now,
-          updatedAt: now,
-        }).where(eq(merchantVerifications.id, verification.id)).returning();
-        const [savedMerchant] = await tx.update(merchants).set({
-          status: parsed.data.decision === 'approved' ? 'active' : 'rejected',
-          updatedAt: now,
-        }).where(eq(merchants.id, merchant.id)).returning();
-        await tx.insert(auditEvents).values({
-          actorId: req.user!.id,
-          action: `merchant.verification_${parsed.data.decision}`,
-          resourceType: 'merchant_verification',
-          resourceId: savedVerification.id,
-          metadata: { merchantId: merchant.id, note: parsed.data.note },
-          ipAddress: req.ip,
-        });
-        await tx.insert(outboxEvents).values({
-          type: `merchant.verification_${parsed.data.decision}`,
-          payload: { merchantId: merchant.id, verificationId: savedVerification.id, reviewedBy: req.user!.id, note: parsed.data.note },
-        });
-        return { merchant: savedMerchant, verification: savedVerification };
-      });
-      res.json({
-        success: true,
-        data: {
-          merchant: safeMerchant(result.merchant),
-          verification: { status: result.verification.status, rejectionReason: result.verification.rejectionReason, updatedAt: result.verification.updatedAt },
-        },
-      });
-    } catch (err) {
-      sendError(res, err);
-    }
-  }
-);
+/**
+ * Retired to ensure Operations cannot approve a verification without moving
+ * the registration lifecycle at the same time. Use /registration/decision.
+ */
+vendorRouter.post('/merchant/:merchantId/verification/review', (_req: Request, _res: Response) => {
+  throw errors.conflict('VERIFICATION_ENDPOINT_RETIRED', 'Use POST /registration/decision to review merchant registration.');
+});

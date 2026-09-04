@@ -6,8 +6,12 @@
 const root = document.getElementById('portal-root');
 
 // Runtime configuration is supplied by config.js locally, Vercel's public config endpoint, or project defaults.
+const isLocalDevelopmentHost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 const defaultFallbackConfig = {
-  apiUrl: window.localStorage?.getItem('sfbf_api_url') || 'http://localhost:4000',
+  // A production browser must obtain its API location from Vercel's runtime
+  // endpoint. Leaving this empty prevents a deployed portal from silently
+  // attempting to call a developer's localhost server.
+  apiUrl: window.localStorage?.getItem('sfbf_api_url') || (isLocalDevelopmentHost ? 'http://localhost:4000' : ''),
   supabaseUrl: window.localStorage?.getItem('sfbf_supabase_url') || 'https://fuqrhfxptybipxbzveyy.supabase.co',
   supabaseAnonKey: window.localStorage?.getItem('sfbf_supabase_anon_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1cXJoZnhwdHliaXB4Ynp2ZXl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY3MjYsImV4cCI6MjEwMzUyMjcyNn0.Q240FBpikqiWaGytkVP1RWVHGA-ZpvdVicY9qf4pvWw',
 };
@@ -99,7 +103,10 @@ function hasRuntimeConfig(value = config) {
 }
 
 async function resolveRuntimeConfig() {
-  if (hasRuntimeConfig()) return;
+  // config.js deliberately has local development defaults. In Vercel, always
+  // load the deployment's server-provided configuration instead of trusting
+  // those defaults.
+  if (isLocalDevelopmentHost && hasRuntimeConfig()) return;
   try {
     const response = await fetch('/api/runtime-config', { cache: 'no-store' });
     const payload = await response.json();
@@ -650,15 +657,15 @@ function renderOnboardingWizardHtml() {
             <div class="form-group">
               <label class="form-label" for="onboard-state">Operating State</label>
               <select class="select" id="onboard-state" name="state" required>
-                <option value="Lagos">Lagos</option>
-                <option value="Abuja">Abuja (FCT)</option>
-                <option value="Rivers">Rivers</option>
-                <option value="Oyo">Oyo</option>
-                <option value="Kano">Kano</option>
-                <option value="Anambra">Anambra</option>
-                <option value="Enugu">Enugu</option>
-                <option value="Delta">Delta</option>
-                <option value="Ogun">Ogun</option>
+                <option value="Lagos State">Lagos</option>
+                <option value="Abuja FCT">Abuja (FCT)</option>
+                <option value="Rivers State">Rivers</option>
+                <option value="Oyo State">Oyo</option>
+                <option value="Kano State">Kano</option>
+                <option value="Anambra State">Anambra</option>
+                <option value="Enugu State">Enugu</option>
+                <option value="Delta State">Delta</option>
+                <option value="Ogun State">Ogun</option>
               </select>
             </div>
             <div class="form-group">
@@ -672,31 +679,17 @@ function renderOnboardingWizardHtml() {
             <input class="input" id="onboard-address" name="address" placeholder="e.g. 14 Admiralty Way, Lekki Phase 1" autocomplete="street-address" required />
           </div>
 
-          <div class="grid-2col">
-            <div class="form-group">
-              <label class="form-label" for="onboard-id-type">Director ID Type</label>
-              <select class="select" id="onboard-id-type" name="idType" required>
-                <option value="national_id">National Identity Card (NIN)</option>
-                <option value="passport">International Passport</option>
-                <option value="drivers_license">Driver's Licence (FRSC)</option>
-                <option value="voters_card">Voter's Card (INEC)</option>
-              </select>
+          <div class="callout-info-box" style="margin-top:20px;">
+            <div class="callout-info-icon">${icon('shield-check')}</div>
+            <div class="callout-info-text">
+              <strong>Secure document step next.</strong> We will create your private workspace first. You will then upload your ID and proof of address directly to the protected KYC vault; never paste document links here.
             </div>
-            <div class="form-group">
-              <label class="form-label" for="onboard-id-doc">Director ID Document URL</label>
-              <input class="input" id="onboard-id-doc" name="idDocumentUrl" type="url" placeholder="https://secure-document-host.example/id" required />
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="onboard-utility">Utility Bill / Proof of Address Document URL</label>
-            <input class="input" id="onboard-utility" name="utilityBillUrl" type="url" placeholder="https://secure-document-host.example/utility-bill" required />
           </div>
 
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;gap:12px;flex-wrap:wrap;">
             <button type="button" class="btn btn-secondary" data-action="sign-out">${icon('log-out')} Sign Out</button>
             <button type="submit" class="btn btn-primary" ${state.busy === 'submit-onboarding' ? 'disabled' : ''}>
-              ${state.busy === 'submit-onboarding' ? 'Submitting…' : `${icon('send')} Submit for Verification`}
+              ${state.busy === 'submit-onboarding' ? 'Creating workspace…' : `${icon('arrow-right')} Continue to Secure Verification`}
             </button>
           </div>
         </form>
@@ -4217,61 +4210,34 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'accept-order') {
     const orderId = button.dataset.orderId;
-    const ord = state.orders.find((o) => o.id === orderId);
-    if (ord) ord.status = 'processing';
-    render();
-    showNotice('Order accepted. Prepare it for packing.');
-
-    try {
+    await performServerAction(`accept-order-${orderId}`, async () => {
       await api(`/v1/fulfilment/orders/${orderId}/accept`, {
         method: 'POST',
         idempotencyScope: 'fulfilment-accept',
       });
-    } catch (e) {
-      if (state.client) {
-        await state.client.from('orders').update({ status: 'processing' }).eq('id', orderId);
-      }
-    }
+    }, 'Order accepted. Prepare it for packing.');
     return;
   }
 
   if (action === 'pack-order') {
     const orderId = button.dataset.orderId;
-    const ord = state.orders.find((o) => o.id === orderId);
-    if (ord) ord.status = 'processing';
-    render();
-    showNotice('Order marked packed. Record the courier handoff when it occurs.');
-
-    try {
+    await performServerAction(`pack-order-${orderId}`, async () => {
       await api(`/v1/fulfilment/orders/${orderId}/pack`, {
         method: 'POST',
         idempotencyScope: 'fulfilment-pack',
       });
-    } catch (e) {
-      if (state.client) {
-        await state.client.from('orders').update({ status: 'processing' }).eq('id', orderId);
-      }
-    }
+    }, 'Order marked packed. Record the courier handoff when it occurs.');
     return;
   }
 
   if (action === 'submit-product') {
     const productId = button.dataset.productId;
-    const prod = state.products.find((p) => p.id === productId);
-    if (prod) prod.status = 'pending_approval';
-    render();
-    showNotice('Product submitted for Operations review.');
-
-    try {
+    await performServerAction(`submit-product-${productId}`, async () => {
       await api(`/v1/catalog-management/products/${productId}/submit`, {
         method: 'POST',
         idempotencyScope: 'catalog-submit',
       });
-    } catch (e) {
-      if (state.client) {
-        await state.client.from('products').update({ status: 'pending_approval' }).eq('id', productId);
-      }
-    }
+    }, 'Product submitted for Operations review.');
     return;
   }
 });
@@ -4678,14 +4644,8 @@ document.addEventListener('submit', async (event) => {
     const stateVal = form.elements.state.value;
     const lga = form.elements.lga.value.trim();
     const address = form.elements.address.value.trim();
-    const cacNumber = form.elements.cacNumber.value.trim();
-    const tinNumber = form.elements.tinNumber.value.trim();
-    const idType = form.elements.idType.value;
-    const idDocumentUrl = form.elements.idDocumentUrl.value.trim();
-    const utilityBillUrl = form.elements.utilityBillUrl.value.trim();
-
-    if (!fullName || !businessName || !contactEmail || !contactPhone || !stateVal || !lga || !address || !cacNumber || !idType || !safeUrl(idDocumentUrl) || !safeUrl(utilityBillUrl)) {
-      state.formError = 'Complete every required identity field and provide valid document URLs.';
+    if (!fullName || !businessName || !contactEmail || !contactPhone || !stateVal || !lga || !address) {
+      state.formError = 'Complete the required store setup fields to continue to secure verification.';
       render();
       return;
     }
@@ -4706,19 +4666,14 @@ document.addEventListener('submit', async (event) => {
           state: stateVal,
           lga,
           address,
-          cacNumber,
-          tinNumber: tinNumber || undefined,
-          idType,
-          idDocumentUrl,
-          utilityBillUrl,
         },
       });
       state.merchant = created.merchant;
       state.merchants = [created.merchant];
       state.authMode = 'signin';
-      state.activeView = 'dashboard';
+      state.activeView = 'profile';
       await loadMerchantData();
-      showNotice('Verification submitted. Operations will activate this workspace after review.');
+      showNotice('Workspace created. Upload your documents in the secure verification step.');
     } catch (error) {
       state.formError = requestErrorMessage(error, 'Verification could not be submitted.');
       showNotice(state.formError, 'error');
@@ -4783,30 +4738,13 @@ document.addEventListener('submit', async (event) => {
       return;
     }
 
-    // Immediately update order in memory
-    const ord = state.orders.find((o) => o.id === orderId);
-    if (ord) {
-      ord.status = 'in_transit';
-      ord.carrier = carrier;
-      ord.trackingCode = trackingCode;
-    }
-
-    state.modal = null;
-    state.formError = '';
-    render();
-    showNotice('Courier handoff recorded. The customer was notified with the tracking update.');
-
-    try {
+    await performServerAction(`ship-order-${orderId}`, async () => {
       await api(`/v1/fulfilment/orders/${orderId}/ship`, {
         method: 'POST',
         idempotencyScope: 'fulfilment-ship',
         body: { carrier, trackingCode, pickupEvidenceUrl: pickupEvidenceUrl || undefined },
       });
-    } catch (e) {
-      if (state.client) {
-        await state.client.from('orders').update({ status: 'in_transit' }).eq('id', orderId);
-      }
-    }
+    }, 'Courier handoff recorded. The customer was notified with the tracking update.');
     return;
   }
 

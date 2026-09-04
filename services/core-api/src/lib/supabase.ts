@@ -9,7 +9,6 @@ if (typeof (globalThis as any).WebSocket === 'undefined') {
 
 const supabaseUrl = config.supabaseUrl;
 const supabaseServiceRoleKey = config.supabaseServiceRoleKey;
-const supabaseAnonKey = config.supabaseAnonKey;
 
 if (!supabaseUrl || !supabaseServiceRoleKey) {
   console.warn('⚠️ SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing.');
@@ -22,6 +21,3 @@ export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
     persistSession: false
   }
 });
-
-// Standard Client for anonymous / token-forwarded operations
-export const supabasePublic = createClient(supabaseUrl, supabaseAnonKey);

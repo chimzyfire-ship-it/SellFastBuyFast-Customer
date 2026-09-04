@@ -6,7 +6,7 @@
 
 ## 1. Read this before merging UI work
 
-The backend is now the only source of truth for merchant data. The current Vendor Portal contains local-only profile saving, an RLS-bypassing Supabase fallback, a registration-state simulator, and placeholder KYC values. Those behaviors must be removed in the same release as this integration.
+The backend is now the only source of truth for merchant data. This release removes browser-side Supabase writes for merchant, order, and product data; the remaining browser Supabase use is sign-in and the short-lived signed upload required for a private KYC file.
 
 Deploy in this order:
 
@@ -15,6 +15,19 @@ Deploy in this order:
 3. Deploy the Vendor Portal changes in this handoff.
 
 The new profile and registration endpoints are strict. Sending legacy fields such as `status`, `registrationState`, `vacationMode`, `cacNumber`, `tinNumber`, or `directorNin` to `PATCH /profile` returns `VALIDATION_ERROR`.
+
+### Production wiring completed
+
+- The Core API is deployed separately from the static portal and is the only business-data API.
+- The Vendor Portal obtains its API location from `/api/runtime-config` in production. `config.js` is a local-development default only; do not hard-code a localhost API URL into a production build.
+- `VENDOR_API_URL` is the only API-address setting the Vendor Portal needs. Never put `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, or `KYC_ENCRYPTION_KEY` in portal configuration.
+- `KYC_ENCRYPTION_KEY` lives only in the Core API's production Vercel environment. It is not in Git, browser storage, page source, runtime-config output, or this document.
+
+### First-time workspace creation
+
+`POST /v1/vendor/onboarding` now creates a **not registered** merchant workspace only. It accepts basic store/contact fields (`fullName`, `businessName`, optional `description`, `contactEmail`, `contactPhone`, `state`, `lga`, `address`) and returns the new merchant.
+
+It must never accept CAC, TIN, NIN, ID document URLs, or utility-bill URLs. After it succeeds, route the owner to **Store Profile** and use the private registration upload flow in section 7. This deliberately prevents a document-hosting URL from bypassing the KYC vault.
 
 ## 2. Authoritative lifecycle
 
@@ -93,7 +106,7 @@ It returns only `cacNumber`, `tinNumber`, `directorNinLast4`, review status/reas
 
 ## 4. Remove local database and cache fallbacks
 
-Delete the Store Profile paths that make Supabase table calls from the browser:
+The production portal must not reintroduce these browser table calls:
 
 - `state.client.from('merchants').update(...)`
 - `state.client.from('merchant_members')...`
@@ -102,7 +115,7 @@ Delete the Store Profile paths that make Supabase table calls from the browser:
 
 The migration removes public merchant-table access. Direct table reads or writes are expected to fail. Supabase in the vendor browser is for authentication and the short-lived signed KYC upload only; every merchant/business read or mutation uses the Core API.
 
-Do not optimistic-save profile state. Disable the relevant button while the request is in flight, replace canonical merchant state only with the returned `data`, and show success only after a successful API response. On failure, preserve form values, show the server message, and do not mutate `state.merchant`, `state.overview.merchant`, or `localStorage`.
+Do not optimistic-save profile, order, fulfilment, or product state. Disable the relevant action while the request is in flight, refresh canonical data from the API after success, and show success only after a successful API response. On failure, preserve form values, show the server message, and do not mutate `state.merchant`, `state.overview.merchant`, order/product state, or `localStorage`.
 
 ## 5. Store-profile update
 
