@@ -25,7 +25,13 @@ catalogRouter.get('/products', async (req: Request, res: Response) => {
   try {
     const { categoryId, featured } = req.query;
 
-    const conditions = [eq(products.status, 'published')];
+    // Vacation-mode stores remain discoverable, but inactive or unregistered
+    // merchants must never leak into the storefront catalogue.
+    const conditions = [
+      eq(products.status, 'published'),
+      eq(merchants.status, 'active'),
+      eq(merchants.registrationState, 'registered'),
+    ];
     if (categoryId && typeof categoryId === 'string') {
       conditions.push(eq(products.categoryId, categoryId));
     }
@@ -52,11 +58,13 @@ catalogRouter.get('/products', async (req: Request, res: Response) => {
         isFeatured: products.isFeatured,
         merchantId: products.merchantId,
         merchantName: merchants.businessName,
+        merchantSlug: merchants.slug,
+        merchantVacationMode: merchants.vacationMode,
         categoryName: categories.name,
         categorySlug: categories.slug,
       })
       .from(products)
-      .leftJoin(merchants, eq(products.merchantId, merchants.id))
+      .innerJoin(merchants, eq(products.merchantId, merchants.id))
       .leftJoin(categories, eq(products.categoryId, categories.id))
       .where(and(...conditions));
 
@@ -107,6 +115,9 @@ catalogRouter.get('/products/:id', async (req: Request, res: Response) => {
       .select({
         id: products.id,
         merchantId: products.merchantId,
+        merchantName: merchants.businessName,
+        merchantSlug: merchants.slug,
+        merchantVacationMode: merchants.vacationMode,
         categoryId: products.categoryId,
         brandId: products.brandId,
         title: products.title,
@@ -127,7 +138,13 @@ catalogRouter.get('/products/:id', async (req: Request, res: Response) => {
         updatedAt: products.updatedAt,
       })
       .from(products)
-      .where(and(eq(products.id, id), eq(products.status, 'published')))
+      .innerJoin(merchants, eq(products.merchantId, merchants.id))
+      .where(and(
+        eq(products.id, id),
+        eq(products.status, 'published'),
+        eq(merchants.status, 'active'),
+        eq(merchants.registrationState, 'registered'),
+      ))
       .limit(1);
 
     if (!product) {

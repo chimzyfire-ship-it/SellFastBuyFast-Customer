@@ -32,6 +32,12 @@ export const merchantStatusEnum = pgEnum('merchant_status_type', [
   'rejected'
 ]);
 
+export const merchantRegistrationStateEnum = pgEnum('merchant_registration_state_type', [
+  'not_registered',
+  'in_review',
+  'registered'
+]);
+
 export const verificationStatusEnum = pgEnum('verification_status_type', [
   'pending',
   'approved',
@@ -181,9 +187,15 @@ export const merchants = pgTable('merchants', {
   bannerUrl: text('banner_url'),
   contactEmail: text('contact_email').notNull(),
   contactPhone: text('contact_phone').notNull(),
+  whatsappPhone: text('whatsapp_phone'),
   state: text('state').notNull(),
   lga: text('lga').notNull(),
   address: text('address').notNull(),
+  dispatchContactName: text('dispatch_contact_name'),
+  dispatchContactPhone: text('dispatch_contact_phone'),
+  fulfillmentSla: text('fulfillment_sla').default('same_day').notNull(),
+  vacationMode: boolean('vacation_mode').default(false).notNull(),
+  registrationState: merchantRegistrationStateEnum('registration_state').default('not_registered').notNull(),
   status: merchantStatusEnum('status').default('pending_verification').notNull(),
   commissionRateBps: integer('commission_rate_bps').default(500).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -203,6 +215,8 @@ export const merchantVerifications = pgTable('merchant_verifications', {
   merchantId: uuid('merchant_id').references(() => merchants.id, { onDelete: 'cascade' }).notNull(),
   cacNumber: text('cac_number'),
   tinNumber: text('tin_number'),
+  directorNinEncrypted: text('director_nin_encrypted'),
+  directorNinLast4: text('director_nin_last4'),
   idType: text('id_type'),
   idDocumentUrl: text('id_document_url'),
   utilityBillUrl: text('utility_bill_url'),
@@ -210,6 +224,14 @@ export const merchantVerifications = pgTable('merchant_verifications', {
   rejectionReason: text('rejection_reason'),
   reviewedBy: uuid('reviewed_by').references(() => profiles.id),
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const merchantProfileDrafts = pgTable('merchant_profile_drafts', {
+  merchantId: uuid('merchant_id').primaryKey().references(() => merchants.id, { onDelete: 'cascade' }),
+  data: jsonb('data').default({}).notNull(),
+  updatedBy: uuid('updated_by').references(() => profiles.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });

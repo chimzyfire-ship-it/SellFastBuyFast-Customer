@@ -183,8 +183,8 @@ catalogManagementRouter.post(
         const [merchant] = await tx.select().from(merchants)
           .where(eq(merchants.id, req.params.merchantId)).limit(1).for('update');
         if (!merchant) throw errors.notFound('Merchant not found.');
-        if (merchant.status !== 'active') {
-          throw errors.conflict('MERCHANT_NOT_ACTIVE', 'Only an active merchant can create catalogue products.');
+        if (merchant.status !== 'active' || merchant.registrationState !== 'registered') {
+          throw errors.conflict('MERCHANT_NOT_ACTIVE', 'Only an active, registered merchant can create catalogue products.');
         }
         if (parsed.data.categoryId) {
           const [category] = await tx.select({ id: categories.id }).from(categories)

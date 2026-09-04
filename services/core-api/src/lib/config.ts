@@ -45,6 +45,15 @@ function secretMap(name: string): Record<string, string> {
   }
 }
 
+function isBase64Key32(value: string): boolean {
+  if (!value) return false;
+  try {
+    return Buffer.from(value, 'base64').length === 32;
+  } catch {
+    return false;
+  }
+}
+
 export const isProduction = process.env.NODE_ENV === 'production';
 const paymentMode = process.env.PAYMENT_MODE === 'paystack' ? 'paystack' : 'mock';
 const platformCommissionBps = boundedInteger('PLATFORM_COMMISSION_BPS', 500, 0, 10_000);
@@ -64,6 +73,7 @@ export const config = {
   paymentMode,
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? '',
   paystackBaseUrl: process.env.PAYSTACK_BASE_URL ?? 'https://api.paystack.co',
+  kycEncryptionKey: process.env.KYC_ENCRYPTION_KEY ?? '',
 
   pricing: {
     platformCommissionBps,
@@ -98,6 +108,9 @@ export function validateRuntimeConfig(): void {
   ].filter(([, configured]) => !configured).map(([name]) => name);
   if (config.isProduction && config.paymentMode === 'paystack' && !paystackConfigured) {
     missing.push('PAYSTACK_SECRET_KEY');
+  }
+  if (config.isProduction && !isBase64Key32(config.kycEncryptionKey)) {
+    missing.push('KYC_ENCRYPTION_KEY (base64-encoded 32-byte key)');
   }
   if (missing.length > 0) throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
 }

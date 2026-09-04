@@ -102,6 +102,27 @@ ordersRouter.post(
       }
 
       const result = await db.transaction(async (tx) => {
+        // Merchant eligibility is checked while locked. The client may show
+        // vacation stores for discovery, but the server remains authoritative
+        // before it reserves stock or initializes a payment attempt.
+        const [merchant] = await tx
+          .select({
+            id: merchants.id,
+            status: merchants.status,
+            registrationState: merchants.registrationState,
+            vacationMode: merchants.vacationMode,
+          })
+          .from(merchants)
+          .where(eq(merchants.id, merchantId))
+          .limit(1)
+          .for('update');
+        if (!merchant || merchant.status !== 'active' || merchant.registrationState !== 'registered' || merchant.vacationMode) {
+          throw errors.conflict(
+            'MERCHANT_UNAVAILABLE',
+            'This store is temporarily unavailable for checkout. Remove its items and try another merchant.'
+          );
+        }
+
         // Lock inventory rows in deterministic order to serialize concurrent checkouts
         const lockedInventory = await tx
           .select({ variantId: inventoryLevels.variantId, availableQuantity: inventoryLevels.availableQuantity })
