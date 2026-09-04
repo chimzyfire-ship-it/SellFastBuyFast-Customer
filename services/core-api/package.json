@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
-    "test": "node --import tsx --test src/modules/ledger/ledger.test.ts src/modules/orders/orderStateMachine.test.ts src/modules/customer-care/customerCare.policy.test.ts src/modules/catalog-management/catalogManagement.policy.test.ts src/modules/vendor/vendor.policy.test.ts src/modules/fulfilment/logistics.policy.test.ts src/modules/fulfilment/fulfilment.service.test.ts src/lib/paystack.test.ts",
+    "test": "node --import tsx --test src/modules/ledger/ledger.test.ts src/modules/orders/orderStateMachine.test.ts src/modules/customer-care/customerCare.policy.test.ts src/modules/catalog-management/catalogManagement.policy.test.ts src/modules/vendor/vendor.policy.test.ts src/modules/fulfilment/logistics.policy.test.ts src/modules/fulfilment/fulfilment.service.test.ts src/lib/paystack.test.ts src/lib/kyc.test.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

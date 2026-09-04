@@ -18,6 +18,7 @@ export const errors = {
   insufficientStock: (message: string) => new AppError('INSUFFICIENT_STOCK', message, 409),
   invalidTransition: (message: string) => new AppError('INVALID_ORDER_TRANSITION', message, 409),
   paymentFailed: (message: string) => new AppError('PAYMENT_FAILED', message, 402),
+  unavailable: (code: string, message: string) => new AppError(code, message, 503),
   ledgerUnbalanced: (message: string) => new AppError('LEDGER_UNBALANCED', message, 500),
   internal: (message = 'Unexpected server error.') => new AppError('INTERNAL_ERROR', message, 500),
 };

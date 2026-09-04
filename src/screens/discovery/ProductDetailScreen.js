@@ -341,6 +341,16 @@ export default function ProductDetailScreen() {
         </View>
       </ScrollView>
 
+      {/* Vacation Mode Banner if merchant is away */}
+      {Boolean(product.merchantVacationMode) && (
+        <View style={styles.vacationBanner}>
+          <Ionicons name="time-outline" size={16} color="#B45309" />
+          <Text style={styles.vacationBannerText}>
+            Store temporarily away · Purchasing is paused
+          </Text>
+        </View>
+      )}
+
       {/* Sticky Bottom Purchase Action Dock */}
       <View style={styles.bottomStickyBar}>
         <View style={styles.priceSummaryCol}>
@@ -352,21 +362,27 @@ export default function ProductDetailScreen() {
 
         <View style={styles.ctaButtonsGroup}>
           <TouchableOpacity
-            style={styles.addBagBtn}
-            activeOpacity={0.85}
-            onPress={handleAddToCart}
+            style={[styles.addBagBtn, product.merchantVacationMode && styles.btnDisabled]}
+            activeOpacity={product.merchantVacationMode ? 1 : 0.85}
+            onPress={product.merchantVacationMode ? undefined : handleAddToCart}
+            disabled={Boolean(product.merchantVacationMode)}
           >
-            <Ionicons name="bag-handle-outline" size={17} color="#0F382C" />
-            <Text style={styles.addBagBtnText}>Add to Bag</Text>
+            <Ionicons name="bag-handle-outline" size={17} color={product.merchantVacationMode ? '#9CA3AF' : '#0F382C'} />
+            <Text style={[styles.addBagBtnText, product.merchantVacationMode && styles.btnTextDisabled]}>
+              {product.merchantVacationMode ? 'Store Away' : 'Add to Bag'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.buyNowBtn}
-            activeOpacity={0.88}
-            onPress={handleBuyNow}
+            style={[styles.buyNowBtn, product.merchantVacationMode && styles.btnDisabledDark]}
+            activeOpacity={product.merchantVacationMode ? 1 : 0.88}
+            onPress={product.merchantVacationMode ? undefined : handleBuyNow}
+            disabled={Boolean(product.merchantVacationMode)}
           >
-            <Text style={styles.buyNowBtnText}>Buy Now</Text>
-            <Ionicons name="arrow-forward" size={14} color="#C69B56" />
+            <Text style={[styles.buyNowBtnText, product.merchantVacationMode && styles.btnTextDisabled]}>
+              {product.merchantVacationMode ? 'Paused' : 'Buy Now'}
+            </Text>
+            <Ionicons name="arrow-forward" size={14} color={product.merchantVacationMode ? '#9CA3AF' : '#C69B56'} />
           </TouchableOpacity>
         </View>
       </View>
@@ -840,5 +856,35 @@ const styles = StyleSheet.create({
     fontFamily: 'PlusJakartaSans-Bold',
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  vacationBanner: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+  },
+  vacationBannerText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#92400E',
+  },
+  btnDisabled: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
+    opacity: 0.6,
+  },
+  btnDisabledDark: {
+    backgroundColor: '#9CA3AF',
+    opacity: 0.6,
+  },
+  btnTextDisabled: {
+    color: '#9CA3AF',
   },
 });
