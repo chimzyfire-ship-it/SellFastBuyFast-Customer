@@ -417,35 +417,39 @@ function renderAuthHtml() {
         
         ${state.authError ? `<div class="error-summary" role="alert">${icon('alert-circle')} <span>${escapeHtml(state.authError)}</span></div>` : ''}
 
-        <div class="form-group">
-          <label class="form-label" for="full-name">Full Name</label>
-          <div class="input-wrapper">
-            <span class="input-icon-left">${icon('user')}</span>
-            <input class="input has-icon-left" id="full-name" name="fullName" type="text" placeholder="e.g. Oluwaseun Adeleke" required />
+        <div class="auth-grid-2col">
+          <div class="form-group">
+            <label class="form-label" for="full-name">Full Name</label>
+            <div class="input-wrapper">
+              <span class="input-icon-left">${icon('user')}</span>
+              <input class="input has-icon-left" id="full-name" name="fullName" type="text" placeholder="e.g. Oluwaseun Adeleke" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="business-name">Store / Brand Name</label>
+            <div class="input-wrapper">
+              <span class="input-icon-left">${icon('store')}</span>
+              <input class="input has-icon-left" id="business-name" name="businessName" type="text" placeholder="e.g. Lagos Luxury Attire" required />
+            </div>
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label" for="business-name">Store / Brand Name</label>
-          <div class="input-wrapper">
-            <span class="input-icon-left">${icon('store')}</span>
-            <input class="input has-icon-left" id="business-name" name="businessName" type="text" placeholder="e.g. Lagos Luxury Attire" required />
+        <div class="auth-grid-2col">
+          <div class="form-group">
+            <label class="form-label" for="email">Work Email</label>
+            <div class="input-wrapper">
+              <span class="input-icon-left">${icon('mail')}</span>
+              <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" placeholder="vendor@business.ng" required />
+            </div>
           </div>
-        </div>
 
-        <div class="form-group">
-          <label class="form-label" for="email">Work Email</label>
-          <div class="input-wrapper">
-            <span class="input-icon-left">${icon('mail')}</span>
-            <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" placeholder="vendor@business.ng" required />
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="phone">Phone Number (+234)</label>
-          <div class="input-wrapper">
-            <span class="input-icon-left">${icon('phone')}</span>
-            <input class="input has-icon-left" id="phone" name="phone" type="tel" placeholder="08012345678" required />
+          <div class="form-group">
+            <label class="form-label" for="phone">Phone Number (+234)</label>
+            <div class="input-wrapper">
+              <span class="input-icon-left">${icon('phone')}</span>
+              <input class="input has-icon-left" id="phone" name="phone" type="tel" placeholder="08012345678" required />
+            </div>
           </div>
         </div>
 
@@ -467,8 +471,8 @@ function renderAuthHtml() {
           ${state.busy === 'sign-up' ? 'Creating Account…' : `${icon('user-plus')} Create Account & Send OTP`}
         </button>
 
-        <div style="text-align:center;margin-top:20px;font-size:14px;color:var(--ink-muted);">
-          Already registered? <button type="button" class="btn-quiet" data-action="switch-auth-mode" data-mode="signin">Sign In</button>
+        <div style="text-align:center;margin-top:16px;font-size:13.5px;color:var(--ink-muted);">
+          Already registered? <button type="button" class="btn-quiet" data-action="switch-auth-mode" data-mode="signin" style="font-weight:700;">Sign In</button>
         </div>
       </form>`;
   } else if (mode === 'recover') {
