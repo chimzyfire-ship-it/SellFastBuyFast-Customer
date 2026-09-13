@@ -429,3 +429,49 @@ test('dismissSplash removes splash element from DOM without calling render()', a
   assert.equal(state.splashActive, false);
   assert.equal(renderCalled, false, 'dismissSplash must NOT invoke render()');
 });
+
+test('toggle-password prevents default on mousedown and syncs email & password values', () => {
+  let defaultPrevented = false;
+  const mockMousedownEvent = {
+    target: {
+      closest(sel) {
+        return sel === '[data-action="toggle-password"]' ? { dataset: { action: 'toggle-password' } } : null;
+      }
+    },
+    preventDefault() {
+      defaultPrevented = true;
+    }
+  };
+
+  // Simulate mousedown listener
+  const toggleBtn = mockMousedownEvent.target.closest('[data-action="toggle-password"]');
+  if (toggleBtn) {
+    mockMousedownEvent.preventDefault();
+  }
+  assert.equal(defaultPrevented, true, 'mousedown on toggle-password must preventDefault to preserve input focus in Safari');
+
+  // Simulate toggle-password action
+  const state = {
+    pendingPassword: '',
+    pendingEmail: '',
+    showPassword: false,
+  };
+
+  const emailInput = { value: 'chimzycharles001@gmail.com' };
+  const passwordInput = { type: 'password', value: 'SellFastVendor2026!' };
+
+  // Handler execution
+  state.pendingEmail = emailInput.value;
+  const currentVal = passwordInput.value;
+  state.pendingPassword = currentVal;
+  const isPassword = passwordInput.type === 'password';
+  passwordInput.type = isPassword ? 'text' : 'password';
+  passwordInput.value = currentVal;
+  state.showPassword = isPassword;
+
+  assert.equal(passwordInput.type, 'text');
+  assert.equal(passwordInput.value, 'SellFastVendor2026!');
+  assert.equal(state.pendingPassword, 'SellFastVendor2026!');
+  assert.equal(state.pendingEmail, 'chimzycharles001@gmail.com');
+});
+

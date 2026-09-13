@@ -3531,6 +3531,14 @@ document.addEventListener('input', (event) => {
   }
 });
 
+// Prevent focus loss and Safari autofill disruption when clicking toggle-password button
+document.addEventListener('mousedown', (event) => {
+  const toggleBtn = event.target.closest('[data-action="toggle-password"]');
+  if (toggleBtn) {
+    event.preventDefault();
+  }
+});
+
 document.addEventListener('click', async (event) => {
   // Dismiss modal when clicking on outside backdrop
   if (event.target.classList && (event.target.classList.contains('modal-backdrop') || event.target.classList.contains('lightbox-backdrop'))) {
@@ -3562,10 +3570,16 @@ document.addEventListener('click', async (event) => {
     event.stopPropagation();
     const wrapper = button.closest('.input-wrapper');
     const input = wrapper?.querySelector('input') || document.getElementById('password');
+    const emailInput = document.getElementById('email');
+    if (emailInput) {
+      state.pendingEmail = emailInput.value;
+    }
     if (input) {
-      state.pendingPassword = input.value;
+      const currentVal = input.value;
+      state.pendingPassword = currentVal;
       const isPassword = input.type === 'password';
       input.type = isPassword ? 'text' : 'password';
+      input.value = currentVal;
       state.showPassword = isPassword;
       button.innerHTML = icon(isPassword ? 'eye-off' : 'eye');
       button.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
