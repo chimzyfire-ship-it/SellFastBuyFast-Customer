@@ -39,7 +39,13 @@ export function createApp(): Express {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      crossOriginOpenerPolicy: false,
+      contentSecurityPolicy: false,
+    }),
+  );
   app.use(
     cors({
       origin(origin, callback) {
