@@ -1,0 +1,4 @@
+.vercel/
+config.local.js
+.env*
+.vercel

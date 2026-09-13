@@ -17,6 +17,7 @@ export function verifyLogisticsWebhookSignature(
   if (!rawBody || !signature) return false;
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
   const received = signature.replace(/^sha256=/i, '');
+  if (!/^[a-f0-9]{64}$/i.test(received)) return false;
   const expectedBuffer = Buffer.from(expected, 'hex');
   const receivedBuffer = Buffer.from(received, 'hex');
   return expectedBuffer.length === receivedBuffer.length && crypto.timingSafeEqual(expectedBuffer, receivedBuffer);

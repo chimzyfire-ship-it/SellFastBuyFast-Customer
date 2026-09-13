@@ -1,0 +1,33 @@
+name: Marketplace checks
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: https://isolated-test.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: isolated-test-key-never-used-over-network
+      DATABASE_URL: postgresql://test:test@127.0.0.1:5432/unused
+      PAYMENT_MODE: mock
+      ADMIN_FINANCE_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/core-api/package-lock.json
+      - run: npm ci --prefix services/core-api
+      - run: npm --prefix services/core-api run build
+      - run: npm --prefix services/core-api test
+      - run: npm --prefix admin-portal run check
+      - run: npm --prefix admin-portal test
+      - run: node --check vendor-portal/app.js && node --check vendor-portal/account-access.js
+      - run: node --test vendor-portal/tests/*.test.mjs
+      - run: git diff --check

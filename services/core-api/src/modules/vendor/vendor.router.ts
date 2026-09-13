@@ -1,3 +1,4 @@
+import { reviewCommand, requireFinancialEnabled } from '../admin/admin.legacy.js';
 import crypto from 'node:crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
@@ -663,7 +664,7 @@ vendorRouter.get('/merchant/:merchantId/verification', async (req: Request, res:
 vendorRouter.post(
   '/merchant/:merchantId/registration/decision',
   requireRole('operations_admin', 'security_admin'),
-  idempotency('merchant-registration-decision'),
+  reviewCommand('merchant-registration-decision', 'merchants', body => body.decision === 'approve' ? 'approve_merchant' : 'reject_merchant'),
   async (req: Request, res: Response) => {
     try {
       const parsed = RegistrationDecisionSchema.safeParse(req.body);

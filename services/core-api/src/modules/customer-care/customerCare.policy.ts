@@ -11,14 +11,15 @@ export function assertReturnEligibility(input: {
   deliveredAt: Date | null;
   now?: Date;
   returnWindowDays: number;
+  returnWindowEndsAt?: Date | null;
 }): void {
   if (!RETURNABLE_ORDER_STATUSES.has(input.orderStatus) || !input.deliveredAt) {
     throw errors.conflict('ORDER_NOT_RETURNABLE', 'Only a delivered order can be returned.');
   }
 
   const now = input.now ?? new Date();
-  const closesAt = new Date(input.deliveredAt.getTime() + input.returnWindowDays * 86_400_000);
-  if (closesAt < now) {
+  const closesAt = input.returnWindowEndsAt ?? new Date(input.deliveredAt.getTime() + input.returnWindowDays * 86_400_000);
+  if (closesAt <= now) {
     throw errors.conflict('RETURN_WINDOW_CLOSED', `The return window closed at ${closesAt.toISOString()}.`);
   }
 }

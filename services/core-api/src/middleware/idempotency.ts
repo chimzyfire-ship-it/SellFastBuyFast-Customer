@@ -1,96 +1,107 @@
-import { Request, Response, NextFunction } from 'express';
-import { eq } from 'drizzle-orm';
-import { db } from '../db/client.js';
-import { idempotencyKeys } from '../db/schema.js';
-import { errors } from '../lib/errors.js';
-
-interface IdempotencyRecord {
-  status: number;
-  body: unknown;
+import { Request, Response, NextFunction } from "express";
+import { sql } from "drizzle-orm";
+import { db, withDatabase, Database } from "../db/client.js";
+import { errors } from "../lib/errors.js";
+import { requestFingerprint } from "../modules/admin/admin.policy.js";
+export async function atomicCommand<T>(
+  scope: string,
+  actorId: string,
+  key: string,
+  hash: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) =>
+    withDatabase(tx as unknown as Database, async () => {
+      // Transaction-scoped serialization; a crash rolls back both the command and its receipt.
+      await db.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${scope + ":" + actorId + ":" + key},0))`,
+      );
+      const cacheKey = `${scope}:${actorId}:${key}`;
+      const existing = await db.execute(
+        sql`select request_hash,response_body from idempotency_keys where key=${cacheKey}`,
+      );
+      if (existing[0]) {
+        if (existing[0].request_hash !== hash)
+          throw errors.conflict(
+            "IDEMPOTENCY_CONFLICT",
+            "This request key belongs to different input.",
+          );
+        return existing[0].response_body as T;
+      }
+      const result = await work();
+      await db.execute(
+        sql`insert into idempotency_keys(key,scope,request_hash,response_status,response_body) values(${cacheKey},${scope},${hash},200,${JSON.stringify(result)}::jsonb)`,
+      );
+      return result;
+    }),
+  );
 }
-
-const memoryCache = new Map<string, IdempotencyRecord>();
-
+class RejectedResponse extends Error {
+  constructor(readonly packet: { status: number; body: unknown }) {
+    super("Command rejected");
+  }
+}
 export function idempotency(scope: string) {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const key = req.headers['idempotency-key'];
-    if (!key || typeof key !== 'string') {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const key = req.get("Idempotency-Key");
+    if (!key) {
       next();
       return;
     }
-
     if (!req.user) {
-      next(errors.unauthorized('Idempotency requires authentication.'));
+      next(errors.unauthorized());
       return;
     }
-
-    const cacheKey = `${scope}:${req.user.id}:${key}`;
-    const cached = memoryCache.get(cacheKey);
-    if (cached) {
-      res.status(cached.status).json(cached.body);
+    if (key.length > 200) {
+      next(errors.validation("Request key is too long."));
       return;
     }
-
-    let stored: { responseStatus: number; responseBody: unknown } | undefined;
-    try {
-      const inserted = await db
-        .insert(idempotencyKeys)
-        .values({
-          key: cacheKey,
-          scope,
-          responseStatus: 102,
-          responseBody: {},
-        })
-        .onConflictDoNothing()
-        .returning({ key: idempotencyKeys.key });
-
-      if (inserted.length === 0) {
-        const rows = await db
-          .select({ responseStatus: idempotencyKeys.responseStatus, responseBody: idempotencyKeys.responseBody })
-          .from(idempotencyKeys)
-          .where(eq(idempotencyKeys.key, cacheKey))
-          .limit(1);
-        stored = rows[0];
-      }
-    } catch (err) {
-      next(err);
-      return;
-    }
-
-    if (stored) {
-      if (stored.responseStatus === 102) {
-        res.status(409).json({
-          success: false,
-          error: { code: 'REQUEST_IN_PROGRESS', message: 'An identical request is already being processed.' },
-        });
-        return;
-      }
-      memoryCache.set(cacheKey, { status: stored.responseStatus, body: stored.responseBody });
-      res.status(stored.responseStatus).json(stored.responseBody);
-      return;
-    }
-
     const originalJson = res.json.bind(res);
-    let persisted = false;
-
-    res.json = ((body: any) => {
-      if (!persisted && res.statusCode < 500) {
-        persisted = true;
-        memoryCache.set(cacheKey, { status: res.statusCode, body });
-        void db
-          .update(idempotencyKeys)
-          .set({
-            responseStatus: res.statusCode,
-            responseBody: body ?? {},
-          })
-          .where(eq(idempotencyKeys.key, cacheKey));
-      } else if (!persisted && res.statusCode >= 500) {
-        persisted = true;
-        void db.delete(idempotencyKeys).where(eq(idempotencyKeys.key, cacheKey));
-      }
-      return originalJson(body);
-    }) as typeof res.json;
-
-    next();
+    const hash = requestFingerprint(
+      req.method,
+      req.originalUrl,
+      req.body,
+      req.get("If-Match"),
+    );
+    try {
+      const packet = await atomicCommand(
+        scope,
+        req.user.id,
+        key,
+        hash,
+        () =>
+          new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+            const timer = setTimeout(
+              () =>
+                reject(
+                  errors.unavailable(
+                    "COMMAND_TIMEOUT",
+                    "The request timed out. Retry with the same request key.",
+                  ),
+                ),
+              120000,
+            );
+            res.json = ((body: unknown) => {
+              clearTimeout(timer);
+              const packet = { status: res.statusCode, body };
+              if (res.statusCode >= 400) reject(new RejectedResponse(packet));
+              else resolve(packet);
+              return res;
+            }) as Response["json"];
+            next();
+          }),
+      );
+      res.json = originalJson;
+      res.status(packet.status).json(packet.body);
+    } catch (error) {
+      res.json = originalJson;
+      if (error instanceof RejectedResponse)
+        res.status(error.packet.status).json(error.packet.body);
+      else next(error);
+    }
   };
 }

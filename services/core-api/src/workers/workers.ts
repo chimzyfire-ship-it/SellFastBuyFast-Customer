@@ -1,5 +1,22 @@
-import { and, asc, eq, inArray, isNull, lt, lte, notInArray, sql } from 'drizzle-orm';
-import { db } from '../db/client.js';
+import { leasedJob } from "../modules/operations/runtime.js";
+import {
+  advanceCampaigns,
+  processAdminOutbox,
+  detectReconciliationGaps,
+} from "../modules/admin/admin.workers.js";
+import { financeReady } from "../modules/admin/admin.store.js";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  sql,
+} from "drizzle-orm";
+import { db } from "../db/client.js";
 import {
   inventoryLevels,
   inventoryReservations,
@@ -8,19 +25,27 @@ import {
   outboxEvents,
   payouts,
   returnRequests,
-} from '../db/schema.js';
-import { config } from '../lib/config.js';
-import { PaystackClient } from '../lib/paystack.js';
-import { transitionOrder } from '../modules/orders/orderStateMachine.js';
-import { completeDeliveredOrder } from '../modules/fulfilment/fulfilment.service.js';
-import { recordInventoryTransaction } from '../modules/inventory/inventory.service.js';
-import { settlePayoutTransfer, TransferOutcome } from '../modules/payouts/payouts.service.js';
+} from "../db/schema.js";
+import { config } from "../lib/config.js";
+import { PaystackClient } from "../lib/paystack.js";
+import { transitionOrder } from "../modules/orders/orderStateMachine.js";
+import { completeDeliveredOrder } from "../modules/fulfilment/fulfilment.service.js";
+import { recordInventoryTransaction } from "../modules/inventory/inventory.service.js";
+import {
+  settlePayoutTransfer,
+  TransferOutcome,
+} from "../modules/payouts/payouts.service.js";
 
 export async function releaseExpiredReservations(limit = 100): Promise<number> {
   const candidates = await db
     .selectDistinct({ orderId: inventoryReservations.orderId })
     .from(inventoryReservations)
-    .where(and(eq(inventoryReservations.status, 'active'), lte(inventoryReservations.expiresAt, new Date())))
+    .where(
+      and(
+        eq(inventoryReservations.status, "active"),
+        lte(inventoryReservations.expiresAt, new Date()),
+      ),
+    )
     .limit(limit);
 
   let released = 0;
@@ -31,20 +56,30 @@ export async function releaseExpiredReservations(limit = 100): Promise<number> {
         .from(orders)
         .where(eq(orders.id, candidate.orderId))
         .limit(1)
-        .for('update');
-      if (!order || order.status !== 'pending_payment') return 0;
+        .for("update");
+      if (!order || order.status !== "pending_payment") return 0;
 
       const reservations = await tx
         .select()
         .from(inventoryReservations)
-        .where(and(eq(inventoryReservations.orderId, order.id), eq(inventoryReservations.status, 'active')))
-        .for('update');
-      if (reservations.length === 0 || reservations.every((item) => item.expiresAt > new Date())) return 0;
+        .where(
+          and(
+            eq(inventoryReservations.orderId, order.id),
+            eq(inventoryReservations.status, "active"),
+          ),
+        )
+        .orderBy(asc(inventoryReservations.variantId))
+        .for("update");
+      if (
+        reservations.length === 0 ||
+        reservations.every((item) => item.expiresAt > new Date())
+      )
+        return 0;
 
       for (const reservation of reservations) {
         await tx
           .update(inventoryReservations)
-          .set({ status: 'released' })
+          .set({ status: "released" })
           .where(eq(inventoryReservations.id, reservation.id));
         const [updatedInventory] = await tx
           .update(inventoryLevels)
@@ -58,14 +93,22 @@ export async function releaseExpiredReservations(limit = 100): Promise<number> {
         await recordInventoryTransaction(tx, {
           variantId: reservation.variantId,
           delta: reservation.quantity,
-          actionType: 'checkout_release',
+          actionType: "checkout_release",
           balanceAfter: updatedInventory.availableQuantity,
           referenceId: order.id,
-          note: 'Reserved stock released after payment deadline elapsed.',
+          note: "Reserved stock released after payment deadline elapsed.",
         });
       }
-      await transitionOrder(tx, order.id, 'cancelled', undefined, 'Payment reservation expired');
-      await tx.insert(outboxEvents).values({ type: 'order.expired', payload: { orderId: order.id } });
+      await transitionOrder(
+        tx,
+        order.id,
+        "cancelled",
+        undefined,
+        "Payment reservation expired",
+      );
+      await tx
+        .insert(outboxEvents)
+        .values({ type: "order.expired", payload: { orderId: order.id } });
       return reservations.length;
     });
   }
@@ -78,6 +121,7 @@ export async function releaseExpiredReservations(limit = 100): Promise<number> {
  * each order again so a buyer opening a return cannot race the escrow release.
  */
 export async function completeEligibleOrders(limit = 100): Promise<number> {
+  if (!financeReady()) return 0;
   const now = new Date();
   const candidates = await db
     .selectDistinct({ id: orders.id })
@@ -86,25 +130,29 @@ export async function completeEligibleOrders(limit = 100): Promise<number> {
       returnRequests,
       and(
         eq(returnRequests.orderId, orders.id),
-        notInArray(returnRequests.status, ['rejected', 'completed'])
-      )
+        notInArray(returnRequests.status, ["rejected", "completed"]),
+      ),
     )
-    .where(and(
-      eq(orders.status, 'delivered'),
-      lte(orders.returnWindowEndsAt, now),
-      isNull(returnRequests.id)
-    ))
+    .where(
+      and(
+        eq(orders.status, "delivered"),
+        lte(orders.returnWindowEndsAt, now),
+        isNull(returnRequests.id),
+      ),
+    )
     .orderBy(asc(orders.returnWindowEndsAt))
     .limit(limit);
 
   let completed = 0;
   for (const candidate of candidates) {
     try {
-      await db.transaction((tx) => completeDeliveredOrder(tx, {
-        orderId: candidate.id,
-        now,
-        note: 'Automated escrow release after the return window elapsed',
-      }));
+      await db.transaction((tx) =>
+        completeDeliveredOrder(tx, {
+          orderId: candidate.id,
+          now,
+          note: "Automated escrow release after the return window elapsed",
+        }),
+      );
       completed += 1;
     } catch (err) {
       // A per-order failure (for example, a return opened after the candidate
@@ -122,48 +170,59 @@ async function claimPayoutEvent() {
       .from(outboxEvents)
       .where(
         and(
-          eq(outboxEvents.type, 'payout.transfer_requested'),
-          inArray(outboxEvents.status, ['pending', 'failed']),
+          eq(outboxEvents.type, "payout.transfer_requested"),
+          inArray(outboxEvents.status, ["pending", "failed"]),
           lt(outboxEvents.attempts, 5),
-          lte(outboxEvents.availableAt, new Date())
-        )
+          lte(outboxEvents.availableAt, new Date()),
+        ),
       )
       .orderBy(asc(outboxEvents.createdAt))
       .limit(1)
-      .for('update', { skipLocked: true });
+      .for("update", { skipLocked: true });
     if (!event) return null;
 
     await tx
       .update(outboxEvents)
-      .set({ status: 'processing', attempts: event.attempts + 1, lastError: null })
+      .set({
+        status: "processing",
+        attempts: event.attempts + 1,
+        lastError: null,
+      })
       .where(eq(outboxEvents.id, event.id));
     return { ...event, attempts: event.attempts + 1 };
   });
 }
 
 function terminalTransferOutcome(status: string): TransferOutcome | null {
-  if (status === 'success') return 'successful';
-  if (status === 'failed') return 'failed';
-  if (status === 'reversed') return 'reversed';
+  if (status === "success") return "successful";
+  if (status === "failed") return "failed";
+  if (status === "reversed") return "reversed";
   return null;
 }
 
 export async function processPayoutOutbox(): Promise<boolean> {
+  if (!financeReady()) return false;
   const event = await claimPayoutEvent();
   if (!event) return false;
 
   try {
     const payload = event.payload as { payoutId?: string; reference?: string };
-    if (!payload.payoutId || !payload.reference) throw new Error('Malformed payout outbox event.');
+    if (!payload.payoutId || !payload.reference)
+      throw new Error("Malformed payout outbox event.");
 
     const [record] = await db
       .select({ payout: payouts, bank: merchantBankAccounts })
       .from(payouts)
-      .innerJoin(merchantBankAccounts, eq(merchantBankAccounts.id, payouts.bankAccountId))
+      .innerJoin(
+        merchantBankAccounts,
+        eq(merchantBankAccounts.id, payouts.bankAccountId),
+      )
       .where(eq(payouts.id, payload.payoutId))
       .limit(1);
-    if (!record || record.payout.status !== 'processing') throw new Error('Payout is not ready for transfer.');
-    if (!record.bank.paystackRecipientCode) throw new Error('Payout bank account has no Paystack recipient code.');
+    if (!record || record.payout.status !== "processing")
+      throw new Error("Payout is not ready for transfer.");
+    if (!record.bank.paystackRecipientCode)
+      throw new Error("Payout bank account has no Paystack recipient code.");
 
     const result = await PaystackClient.createTransfer({
       amountMinor: record.payout.amountMinor,
@@ -178,29 +237,42 @@ export async function processPayoutOutbox(): Promise<boolean> {
 
     const outcome = terminalTransferOutcome(result.status);
     if (outcome) {
-      await settlePayoutTransfer({ reference: payload.reference, outcome, transferCode: result.transferCode });
+      await settlePayoutTransfer({
+        reference: payload.reference,
+        outcome,
+        transferCode: result.transferCode,
+      });
     }
     await db
       .update(outboxEvents)
-      .set({ status: 'processed', processedAt: new Date() })
+      .set({ status: "processed", processedAt: new Date() })
       .where(eq(outboxEvents.id, event.id));
     return true;
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown payout worker error.';
-    const delayMs = Math.min(30 * 60_000, 30_000 * 2 ** Math.max(0, event.attempts - 1));
+    const message =
+      err instanceof Error ? err.message : "Unknown payout worker error.";
+    const delayMs = Math.min(
+      30 * 60_000,
+      30_000 * 2 ** Math.max(0, event.attempts - 1),
+    );
     await db
       .update(outboxEvents)
-      .set({ status: 'failed', lastError: message, availableAt: new Date(Date.now() + delayMs) })
+      .set({
+        status: "failed",
+        lastError: message,
+        availableAt: new Date(Date.now() + delayMs),
+      })
       .where(eq(outboxEvents.id, event.id));
     return false;
   }
 }
 
 export async function reconcileProcessingPayouts(limit = 20): Promise<number> {
+  if (!financeReady()) return 0;
   const processing = await db
     .select()
     .from(payouts)
-    .where(eq(payouts.status, 'processing'))
+    .where(eq(payouts.status, "processing"))
     .orderBy(asc(payouts.updatedAt))
     .limit(limit);
 
@@ -208,7 +280,9 @@ export async function reconcileProcessingPayouts(limit = 20): Promise<number> {
   for (const payout of processing) {
     if (!payout.providerReference) continue;
     try {
-      const verified = await PaystackClient.verifyTransfer(payout.providerReference);
+      const verified = await PaystackClient.verifyTransfer(
+        payout.providerReference,
+      );
       const outcome = terminalTransferOutcome(verified.status);
       if (!outcome) continue;
       await settlePayoutTransfer({
@@ -225,18 +299,45 @@ export async function reconcileProcessingPayouts(limit = 20): Promise<number> {
   return reconciled;
 }
 
-export function startWorkers(): () => void {
-  const run = (job: () => Promise<unknown>) => void job().catch((err) => console.error('Worker job failed:', err));
-  run(() => releaseExpiredReservations());
-  run(() => completeEligibleOrders());
-  run(() => processPayoutOutbox());
-  run(() => reconcileProcessingPayouts());
-
-  const timers = [
-    setInterval(() => run(() => releaseExpiredReservations()), config.worker.reservationSweepIntervalMs),
-    setInterval(() => run(() => completeEligibleOrders()), config.worker.completionSweepIntervalMs),
-    setInterval(() => run(() => processPayoutOutbox()), config.worker.outboxIntervalMs),
-    setInterval(() => run(() => reconcileProcessingPayouts()), config.worker.payoutReconcileIntervalMs),
-  ];
-  return () => timers.forEach(clearInterval);
+/** Non-payment maintenance, shared by the persistent process and scheduled HTTP. */
+export async function runNonPaymentMaintenance() {
+  return leasedJob("nonpayment-maintenance", async () => {
+    const campaigns = await advanceCampaigns();
+    const released = await releaseExpiredReservations(20);
+    const invitation = await processAdminOutbox({ invitationsOnly: true });
+    return { campaigns, released, invitation };
+  });
+}
+export function startWorkers(): () => Promise<void> {
+  let stopped = false;
+  const pending = new Set<Promise<unknown>>();
+  const run = () => {
+    if (stopped || pending.size) return;
+    const task = (async () => {
+      await runNonPaymentMaintenance();
+      if (financeReady()) {
+        await completeEligibleOrders();
+        await processPayoutOutbox();
+        await reconcileProcessingPayouts();
+        await detectReconciliationGaps();
+        await processAdminOutbox();
+      }
+    })().catch(() =>
+      console.error(
+        "Scheduled maintenance failed; inspect operations runtime health.",
+      ),
+    );
+    pending.add(task);
+    void task.finally(() => pending.delete(task));
+  };
+  run();
+  const timer = setInterval(
+    run,
+    Math.min(60000, config.worker.reservationSweepIntervalMs),
+  );
+  return async () => {
+    stopped = true;
+    clearInterval(timer);
+    await Promise.allSettled([...pending]);
+  };
 }

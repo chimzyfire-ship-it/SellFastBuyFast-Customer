@@ -2,12 +2,15 @@ import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { db } from '../db/client.js';
 import { userRoles, merchantMembers } from '../db/schema.js';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { errors } from '../lib/errors.js';
 
 export interface AuthenticatedUser {
   id: string;
   email: string;
+  aal?: string;
+  issuedAt?: number;
+  emailConfirmed?: boolean;
   roles: string[];
   merchantIds: string[];
   merchantRoles: Record<string, string>;
@@ -49,6 +52,11 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       throw errors.unauthorized('Token is invalid or expired.');
     }
 
+    const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+    const access = await db.execute(sql`select status,valid_after from admin_staff_access where id=${user.id}`);
+    if(access[0] && (!Number.isFinite(Number(claims.iat)) || Number(claims.iat)<=Math.floor(new Date(String(access[0].valid_after)).getTime()/1000))) {
+      throw errors.unauthorized('This session was revoked. Sign in again.');
+    }
     const [roles, memberships] = await Promise.all([
       db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, user.id)),
       db
@@ -65,6 +73,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
     req.user = {
       id: user.id,
+      aal: claims.aal,
+      issuedAt: claims.iat,
+      emailConfirmed: Boolean(user.email_confirmed_at),
       email: user.email ?? '',
       roles: Array.from(granted),
       merchantIds: memberships.map((m) => m.merchantId),

@@ -11,7 +11,7 @@ const defaultFallbackConfig = {
   // A production browser must obtain its API location from Vercel's runtime
   // endpoint. Leaving this empty prevents a deployed portal from silently
   // attempting to call a developer's localhost server.
-  apiUrl: window.localStorage?.getItem('sfbf_api_url') || (isLocalDevelopmentHost ? 'http://localhost:4000' : ''),
+  apiUrl: window.localStorage?.getItem('sfbf_api_url') || (isLocalDevelopmentHost ? 'http://localhost:4000' : 'https://sell-fast-buy-fast-core-api.vercel.app'),
   supabaseUrl: window.localStorage?.getItem('sfbf_supabase_url') || 'https://fuqrhfxptybipxbzveyy.supabase.co',
   supabaseAnonKey: window.localStorage?.getItem('sfbf_supabase_anon_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1cXJoZnhwdHliaXB4Ynp2ZXl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY3MjYsImV4cCI6MjEwMzUyMjcyNn0.Q240FBpikqiWaGytkVP1RWVHGA-ZpvdVicY9qf4pvWw',
 };
@@ -440,7 +440,7 @@ function renderAuthHtml() {
             <label class="form-label" for="email">Work Email</label>
             <div class="input-wrapper">
               <span class="input-icon-left">${icon('mail')}</span>
-              <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" placeholder="vendor@business.ng" required />
+              <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" placeholder="vendor@business.ng" value="${escapeAttribute(state.pendingEmail || '')}" required />
             </div>
           </div>
 
@@ -458,7 +458,7 @@ function renderAuthHtml() {
           <div class="input-wrapper">
             <span class="input-icon-left">${icon('lock')}</span>
             <input class="input has-icon-left has-icon-right" id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" required placeholder="Min. 8 characters" />
-            <button type="button" class="input-icon-right-btn" data-action="toggle-password" aria-label="Toggle password visibility">${icon(state.showPassword ? 'eye-off' : 'eye')}</button>
+            <button type="button" class="input-icon-right-btn" data-action="toggle-password" aria-label="${state.showPassword ? 'Hide password' : 'Show password'}" title="${state.showPassword ? 'Hide password' : 'Show password'}">${icon(state.showPassword ? 'eye-off' : 'eye')}</button>
           </div>
         </div>
 
@@ -487,7 +487,7 @@ function renderAuthHtml() {
           <label class="form-label" for="email">Account Email</label>
           <div class="input-wrapper">
             <span class="input-icon-left">${icon('mail')}</span>
-            <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" placeholder="vendor@business.ng" required />
+            <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" placeholder="vendor@business.ng" value="${escapeAttribute(state.pendingEmail || '')}" required />
           </div>
         </div>
 
@@ -529,7 +529,7 @@ function renderAuthHtml() {
           <div class="input-wrapper">
             <span class="input-icon-left">${icon('lock')}</span>
             <input class="input has-icon-left has-icon-right" id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" autocomplete="current-password" placeholder="••••••••" required />
-            <button type="button" class="input-icon-right-btn" data-action="toggle-password" aria-label="Toggle password visibility">${icon(state.showPassword ? 'eye-off' : 'eye')}</button>
+            <button type="button" class="input-icon-right-btn" data-action="toggle-password" aria-label="${state.showPassword ? 'Hide password' : 'Show password'}" title="${state.showPassword ? 'Hide password' : 'Show password'}">${icon(state.showPassword ? 'eye-off' : 'eye')}</button>
           </div>
         </div>
 
@@ -3385,6 +3385,15 @@ async function performServerAction(key, operation, successMessage) {
    EVENT LISTENERS & INTERACTION HANDLERS
    ========================================================================== */
 
+// Real-time tracking of auth inputs to ensure typed values (email, etc.) are never lost
+document.addEventListener('input', (event) => {
+  const target = event.target;
+  if (!target) return;
+  if (target.id === 'email' || target.name === 'email') {
+    state.pendingEmail = target.value;
+  }
+});
+
 document.addEventListener('click', async (event) => {
   // Dismiss modal when clicking on outside backdrop
   if (event.target.classList && (event.target.classList.contains('modal-backdrop') || event.target.classList.contains('lightbox-backdrop'))) {
@@ -3412,8 +3421,23 @@ document.addEventListener('click', async (event) => {
   }
 
   if (action === 'toggle-password') {
-    state.showPassword = !state.showPassword;
-    render();
+    event.preventDefault();
+    const wrapper = button.closest('.input-wrapper');
+    const input = wrapper?.querySelector('input') || document.getElementById('password');
+    if (input) {
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      state.showPassword = isPassword;
+      button.innerHTML = icon(isPassword ? 'eye-off' : 'eye');
+      button.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+      button.setAttribute('title', isPassword ? 'Hide password' : 'Show password');
+      hydrateIcons();
+      try {
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+        input.focus();
+      } catch (_) {}
+    }
     return;
   }
 
@@ -4490,6 +4514,34 @@ document.addEventListener('change', (event) => {
   }
 });
 
+function setInlineAuthError(form, msg) {
+  state.authError = msg;
+  if (!form || !form.isConnected) {
+    render();
+    return;
+  }
+  let summary = form.querySelector('.error-summary');
+  if (!summary) {
+    summary = document.createElement('div');
+    summary.className = 'error-summary';
+    summary.setAttribute('role', 'alert');
+    const anchor = form.querySelector('.auth-subtitle') || form.querySelector('.auth-title') || form.firstElementChild;
+    if (anchor) {
+      anchor.insertAdjacentElement('afterend', summary);
+    } else {
+      form.prepend(summary);
+    }
+  }
+  summary.innerHTML = `${icon('alert-circle')} <span>${escapeHtml(msg)}</span>`;
+  hydrateIcons();
+}
+
+function clearInlineAuthError(form) {
+  state.authError = '';
+  const summary = form.querySelector('.error-summary');
+  if (summary) summary.remove();
+}
+
 // Form Submissions
 document.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -4497,16 +4549,22 @@ document.addEventListener('submit', async (event) => {
 
   // Sign In Form (Password)
   if (form.id === 'sign-in-form') {
-    const email = form.elements.email.value.trim();
-    const password = form.elements.password.value;
+    const email = form.elements.email?.value?.trim() || '';
+    const password = form.elements.password?.value || '';
+    state.pendingEmail = email;
+
     if (!email || !password) {
-      state.authError = 'Please provide both your work email and password.';
-      render();
+      setInlineAuthError(form, 'Please provide both your work email and password.');
       return;
     }
+
+    clearInlineAuthError(form);
     state.busy = 'sign-in';
-    state.authError = '';
-    render();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = 'Authenticating…';
+    }
 
     try {
       const { data, error } = await state.client.auth.signInWithPassword({ email, password });
@@ -4515,8 +4573,12 @@ document.addEventListener('submit', async (event) => {
       showNotice('Signed in successfully!');
       await loadWorkspace();
     } catch (err) {
-      state.authError = err.message || 'Sign in failed. Check your email and password.';
-      render();
+      setInlineAuthError(form, err.message || 'Sign in failed. Check your email and password.');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `${icon('log-in')} Sign In to Merchant Portal`;
+        hydrateIcons();
+      }
     } finally {
       state.busy = null;
     }
@@ -4525,16 +4587,19 @@ document.addEventListener('submit', async (event) => {
 
   // 1-Time Signup OTP Verification Form
   if (form.id === 'verify-otp-form') {
-    const token = form.elements.otpCode.value.trim();
+    const token = form.elements.otpCode?.value?.trim() || '';
     if (!token || token.length < 6) {
-      state.authError = 'Please enter the 6-digit OTP code sent to your email.';
-      render();
+      setInlineAuthError(form, 'Please enter the 6-digit OTP code sent to your email.');
       return;
     }
 
+    clearInlineAuthError(form);
     state.busy = 'verify-otp';
-    state.authError = '';
-    render();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = 'Verifying…';
+    }
 
     try {
       let res = await state.client.auth.verifyOtp({
@@ -4559,8 +4624,12 @@ document.addEventListener('submit', async (event) => {
       showNotice('Email verified! Opening your merchant workspace…');
       await loadWorkspace();
     } catch (err) {
-      state.authError = err.message || 'Verification failed. Check the 6-digit code.';
-      render();
+      setInlineAuthError(form, err.message || 'Verification failed. Check the 6-digit code.');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `${icon('check-circle')} Verify Code & Open Portal`;
+        hydrateIcons();
+      }
     } finally {
       state.busy = null;
     }
@@ -4569,22 +4638,25 @@ document.addEventListener('submit', async (event) => {
 
   // Sign Up Form (Captures details and sends 1-time OTP)
   if (form.id === 'sign-up-form') {
-    const email = form.elements.email.value.trim();
-    const password = form.elements.password.value;
-    const fullName = form.elements.fullName.value.trim();
-    const businessName = form.elements.businessName.value.trim();
-    const phone = form.elements.phone.value.trim();
+    const email = form.elements.email?.value?.trim() || '';
+    const password = form.elements.password?.value || '';
+    const fullName = form.elements.fullName?.value?.trim() || '';
+    const businessName = form.elements.businessName?.value?.trim() || '';
+    const phone = form.elements.phone?.value?.trim() || '';
+    state.pendingEmail = email;
 
     if (!email || !password || !fullName || !businessName) {
-      state.authError = 'Please fill out all required registration fields.';
-      render();
+      setInlineAuthError(form, 'Please fill out all required registration fields.');
       return;
     }
 
+    clearInlineAuthError(form);
     state.busy = 'sign-up';
-    state.authError = '';
-    state.pendingEmail = email;
-    render();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = 'Creating Account…';
+    }
 
     try {
       const { data, error } = await state.client.auth.signUp({
@@ -4592,6 +4664,7 @@ document.addEventListener('submit', async (event) => {
         password,
         options: {
           data: { full_name: fullName, business_name: businessName, phone },
+          emailRedirectTo: new URL('/account-access.html', window.location.origin).href,
         },
       });
       if (error) throw new Error(error.message);
@@ -4601,13 +4674,17 @@ document.addEventListener('submit', async (event) => {
         showNotice('Merchant account created successfully!');
         await loadWorkspace();
       } else {
-        state.authMode = 'verify-otp';
-        showNotice(`Account registered! Enter the 6-digit code sent to ${email}`);
+        state.authMode = 'signin';
+        showNotice('Check your email to confirm your account, then sign in.');
         render();
       }
     } catch (err) {
-      state.authError = err.message || 'Registration failed.';
-      render();
+      setInlineAuthError(form, err.message || 'Registration failed.');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `${icon('user-plus')} Create Account & Send OTP`;
+        hydrateIcons();
+      }
     } finally {
       state.busy = null;
     }
@@ -4616,24 +4693,36 @@ document.addEventListener('submit', async (event) => {
 
   // Password Recovery Form
   if (form.id === 'recover-form') {
-    const email = form.elements.email.value.trim();
+    const email = form.elements.email?.value?.trim() || '';
+    state.pendingEmail = email;
     if (!email) {
-      state.authError = 'Please enter your account email.';
-      render();
+      setInlineAuthError(form, 'Please enter your account email.');
       return;
     }
+
+    clearInlineAuthError(form);
     state.busy = 'recover';
-    render();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = 'Sending Link…';
+    }
+
     try {
-      const { error } = await state.client.auth.resetPasswordForEmail(email);
+      const { error } = await state.client.auth.resetPasswordForEmail(email, { redirectTo: new URL('/account-access.html', window.location.origin).href });
       if (error) throw new Error(error.message);
       showNotice('Password reset link sent to your email!');
       state.authMode = 'signin';
+      render();
     } catch (err) {
-      state.authError = err.message || 'Could not send reset link.';
+      setInlineAuthError(form, err.message || 'Could not send reset link.');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `${icon('send')} Send Reset Link`;
+        hydrateIcons();
+      }
     } finally {
       state.busy = null;
-      render();
     }
     return;
   }
@@ -5284,6 +5373,7 @@ async function boot() {
     state.session = session;
 
     state.client.auth.onAuthStateChange((_event, nextSession) => {
+      const prevSession = state.session;
       state.session = nextSession;
       if (!nextSession) {
         state.dataAbortController?.abort();
@@ -5296,7 +5386,14 @@ async function boot() {
         state.team = [];
         state.categories = [];
         state.authMode = 'signin';
-        render();
+        // Only trigger render if the user was actively logged in and then signed out.
+        // If prevSession was null, the user is already on the unauthenticated auth form,
+        // and calling render() would blow away whatever they're currently typing into the login inputs!
+        if (prevSession) {
+          render();
+        }
+      } else if (!prevSession && nextSession) {
+        loadWorkspace();
       }
     });
 

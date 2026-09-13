@@ -1,0 +1,10 @@
+import dotenv from 'dotenv';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
+dotenv.config({path:path.join(root,'.env')});
+const dry=process.argv.includes('--dry-run');
+if(!process.env.SUPABASE_ACCESS_TOKEN || !process.env.SUPABASE_DB_PASSWORD)throw Error('Supabase deployment credentials are unavailable.');
+const result=spawnSync('supabase',['db','push','--linked',...(dry?['--dry-run']:['--yes'])],{cwd:root,env:process.env,stdio:'inherit'});
+process.exit(result.status??1);

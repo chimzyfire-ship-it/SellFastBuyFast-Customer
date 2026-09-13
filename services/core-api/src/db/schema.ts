@@ -10,7 +10,8 @@ import {
   numeric,
   jsonb,
   index,
-  uniqueIndex
+  uniqueIndex,
+  primaryKey
 } from 'drizzle-orm/pg-core';
 
 // Enums
@@ -147,6 +148,7 @@ export const outboxStatusEnum = pgEnum('outbox_status_type', [
 
 // 1. Identity & Profiles
 export const profiles = pgTable('profiles', {
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey(),
   email: text('email').notNull().unique(),
   fullName: text('full_name'),
@@ -179,6 +181,7 @@ export const addresses = pgTable('addresses', {
 
 // 2. Merchants
 export const merchants = pgTable('merchants', {
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey().defaultRandom(),
   slug: text('slug').notNull().unique(),
   businessName: text('business_name').notNull(),
@@ -272,6 +275,7 @@ export const brands = pgTable('brands', {
 });
 
 export const products = pgTable('products', {
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey().defaultRandom(),
   merchantId: uuid('merchant_id').references(() => merchants.id, { onDelete: 'restrict' }).notNull(),
   categoryId: uuid('category_id').references(() => categories.id, { onDelete: 'set null' }),
@@ -386,6 +390,7 @@ export const cartItems = pgTable('cart_items', {
 });
 
 export const orders = pgTable('orders', {
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey().defaultRandom(),
   orderNumber: text('order_number').notNull().unique(),
   buyerId: uuid('buyer_id').references(() => profiles.id, { onDelete: 'restrict' }).notNull(),
@@ -482,6 +487,7 @@ export const journalLines = pgTable('journal_lines', {
 });
 
 export const payouts = pgTable('payouts', {
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey().defaultRandom(),
   merchantId: uuid('merchant_id').references(() => merchants.id, { onDelete: 'restrict' }).notNull(),
   bankAccountId: uuid('bank_account_id').references(() => merchantBankAccounts.id, { onDelete: 'restrict' }).notNull(),
@@ -545,6 +551,7 @@ export const deliveryZones = pgTable('delivery_zones', {
 
 // 8. Returns, Disputes, Support
 export const returnRequests = pgTable('return_requests', {
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey().defaultRandom(),
   orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
   buyerId: uuid('buyer_id').references(() => profiles.id, { onDelete: 'restrict' }).notNull(),
@@ -560,6 +567,8 @@ export const returnRequests = pgTable('return_requests', {
 });
 
 export const disputes = pgTable('disputes', {
+  returnId: uuid('return_id').references(() => returnRequests.id),
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey().defaultRandom(),
   orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
   openedBy: uuid('opened_by').references(() => profiles.id, { onDelete: 'restrict' }).notNull(),
@@ -573,6 +582,7 @@ export const disputes = pgTable('disputes', {
 });
 
 export const supportTickets = pgTable('support_tickets', {
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => profiles.id, { onDelete: 'cascade' }).notNull(),
   orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
@@ -595,6 +605,7 @@ export const supportTicketMessages = pgTable('support_ticket_messages', {
 
 // 9. Refunds
 export const refunds = pgTable('refunds', {
+  adminVersion: bigint('admin_version', { mode: 'number' }).default(1).notNull(),
   id: uuid('id').primaryKey().defaultRandom(),
   orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
   paymentAttemptId: uuid('payment_attempt_id').references(() => paymentAttempts.id, { onDelete: 'restrict' }).notNull(),
@@ -634,9 +645,167 @@ export const outboxEvents = pgTable('outbox_events', {
 });
 
 export const idempotencyKeys = pgTable('idempotency_keys', {
+  requestHash: text('request_hash'),
   key: text('key').primaryKey(),
   scope: text('scope').notNull(),
   responseStatus: integer('response_status').notNull(),
   responseBody: jsonb('response_body').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+// Server-owned operations records. SQL migrations own RLS, checks, partial indexes,
+// read views, append-only history and revision triggers. Apply migrations, not schema push.
+export const adminCustomerControls = pgTable("admin_customer_controls", {
+  id: uuid("id")
+    .primaryKey()
+    .references(() => profiles.id),
+  restricted: boolean("restricted").default(false).notNull(),
+  deletionRequestedAt: timestamp("deletion_requested_at", {
+    withTimezone: true,
+  }),
+  privacyReviewStartedAt: timestamp("privacy_review_started_at", {
+    withTimezone: true,
+  }),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const adminStaffAccess = pgTable("admin_staff_access", {
+  id: uuid("id")
+    .primaryKey()
+    .references(() => profiles.id),
+  status: text("status").notNull(),
+  validAfter: timestamp("valid_after", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const adminInvitations = pgTable("admin_invitations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull(),
+  roles: text("roles").array().notNull(),
+  status: text("status").default("invited").notNull(),
+  invitedBy: uuid("invited_by")
+    .notNull()
+    .references(() => profiles.id),
+  acceptedBy: uuid("accepted_by").references(() => profiles.id),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  adminVersion: bigint("admin_version", { mode: "number" })
+    .default(1)
+    .notNull(),
+});
+export const adminCaseMetadata = pgTable(
+  "admin_case_metadata",
+  {
+    section: text("section").notNull(),
+    resourceId: uuid("resource_id").notNull(),
+    assignedTo: uuid("assigned_to").references(() => profiles.id),
+    priority: text("priority").default("normal").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.section, t.resourceId] })],
+);
+export const adminNotes = pgTable("admin_notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  section: text("section").notNull(),
+  resourceId: uuid("resource_id").notNull(),
+  actorId: uuid("actor_id")
+    .notNull()
+    .references(() => profiles.id),
+  note: text("note").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const adminCampaigns = pgTable("admin_campaigns", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  placement: text("placement").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: uuid("target_id").notNull(),
+  imageUrl: text("image_url").notNull(),
+  altText: text("alt_text").notNull(),
+  priority: integer("priority").default(0).notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  status: text("status").default("draft").notNull(),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => profiles.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  adminVersion: bigint("admin_version", { mode: "number" })
+    .default(1)
+    .notNull(),
+});
+export const adminRefundReviews = pgTable("admin_refund_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orderId: uuid("order_id")
+    .notNull()
+    .references(() => orders.id),
+  returnId: uuid("return_id").references(() => returnRequests.id),
+  disputeId: uuid("dispute_id").references(() => disputes.id),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  reason: text("reason").notNull(),
+  status: text("status").default("review_required").notNull(),
+  requestedBy: uuid("requested_by").references(() => profiles.id),
+  reviewedBy: uuid("reviewed_by").references(() => profiles.id),
+  refundId: uuid("refund_id").references(() => refunds.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  adminVersion: bigint("admin_version", { mode: "number" })
+    .default(1)
+    .notNull(),
+});
+export const adminReconciliation = pgTable("admin_reconciliation", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  providerEventId: uuid("provider_event_id").references(
+    () => providerEvents.id,
+  ),
+  providerReference: text("provider_reference").notNull(),
+  kind: text("kind").notNull(),
+  orderId: uuid("order_id").references(() => orders.id),
+  payoutId: uuid("payout_id").references(() => payouts.id),
+  providerAmountMinor: bigint("provider_amount_minor", { mode: "bigint" }),
+  ledgerAmountMinor: bigint("ledger_amount_minor", { mode: "bigint" }),
+  reason: text("reason").notNull(),
+  status: text("status").default("unmatched").notNull(),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  adminVersion: bigint("admin_version", { mode: "number" })
+    .default(1)
+    .notNull(),
+});
+
+export const operationsRuntime = pgTable('operations_runtime', {
+  name: text('name').primaryKey(),
+  leaseToken: uuid('lease_token'),
+  leaseUntil: timestamp('lease_until', { withTimezone: true }).notNull(),
+  lastStartedAt: timestamp('last_started_at', { withTimezone: true }),
+  lastSucceededAt: timestamp('last_succeeded_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

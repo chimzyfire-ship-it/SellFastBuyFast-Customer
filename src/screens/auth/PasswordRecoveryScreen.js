@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../theme/colors';
 import { useNavigation } from '../../navigation/NavigationContext';
+import { supabase } from '../../lib/supabase';
 import AuthLayout from '../../components/auth/AuthLayout';
 
 export default function PasswordRecoveryScreen() {
@@ -20,16 +21,19 @@ export default function PasswordRecoveryScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleSend = () => {
-    if (!email.trim()) {
-      setError('Please enter your email or phone');
+  const handleSend = async () => {
+    if (isLoading) return;
+    if (!email.trim().includes('@')) {
+      setError('Please enter your email address');
       return;
     }
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const {error} = await supabase.auth.resetPasswordForEmail(email.trim(), {redirectTo: `${process.env.EXPO_PUBLIC_ACCOUNT_URL || 'https://www.sellfastbuyfast.com'}/account-access.html`});
+      if (error) throw error;
       setSubmitted(true);
-    }, 500);
+    } catch(error) {setError(error.message || 'Unable to send recovery instructions. Try again.');}
+    finally {setIsLoading(false);}
   };
 
   return (
@@ -39,13 +43,13 @@ export default function PasswordRecoveryScreen() {
       subtitle={
         submitted
           ? 'We sent reset instructions to your address'
-          : 'Enter your email or phone to receive reset instructions'
+          : 'Enter your email address to receive reset instructions'
       }
     >
       {!submitted ? (
         <View style={styles.formContainer}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email Address or Phone</Text>
+            <Text style={styles.label}>Email Address</Text>
             <View
               style={[
                 styles.inputWrapper,

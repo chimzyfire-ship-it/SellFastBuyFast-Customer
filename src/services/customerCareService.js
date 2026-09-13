@@ -83,3 +83,5 @@ export async function listNotifications() {
 export function markNotificationRead(notificationId) {
   return apiRequest(`/v1/notifications/${notificationId}/read`, { method: 'PATCH' });
 }
+
+export function requestAccountDeletion(idempotencyKey) { return apiRequest('/v1/customer-care/account/deletion-request', {method:'POST',idempotencyKey,body:{}}); }

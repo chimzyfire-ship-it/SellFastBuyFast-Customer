@@ -1,3 +1,4 @@
+import { reviewCommand, requireFinancialEnabled } from '../admin/admin.legacy.js';
 import crypto from 'node:crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
@@ -713,7 +714,7 @@ catalogManagementRouter.get(
 catalogManagementRouter.post(
   '/products/:id/moderate',
   requireRole('catalogue_moderator', 'operations_admin'),
-  idempotency('catalog-product-moderate'),
+  reviewCommand('catalog-product-moderate', 'catalogue', body => body.decision === 'publish' ? 'publish_product' : 'reject_product'),
   async (req: Request, res: Response) => {
     try {
       const parsed = ModerationSchema.safeParse(req.body);

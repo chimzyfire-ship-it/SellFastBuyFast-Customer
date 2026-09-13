@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   StyleSheet,
   Text,
@@ -7,57 +7,74 @@ import {
   TouchableOpacity,
   RefreshControl,
   Dimensions,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../../theme/colors';
-import { PRODUCTS, CATEGORIES } from '../../data/mockData';
-import { useApp } from '../../context/AppContext';
-import { useNavigation } from '../../navigation/NavigationContext';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "../../theme/colors";
+import { useApp } from "../../context/AppContext";
+import { useNavigation } from "../../navigation/NavigationContext";
 
-import SearchBar from '../../components/SearchBar';
-import HeroCarousel from '../../components/HeroCarousel';
-import CategoryNav from '../../components/CategoryNav';
-import TrustStrip from '../../components/TrustStrip';
-import ProductCard from '../../components/ProductCard';
-import { ProductCardSkeleton, HeroSkeleton } from '../../components/SkeletonLoader';
+import SearchBar from "../../components/SearchBar";
+import { fetchStorefrontContent } from "../../services/catalogService";
+import HeroCarousel from "../../components/HeroCarousel";
+import CategoryNav from "../../components/CategoryNav";
+import TrustStrip from "../../components/TrustStrip";
+import ProductCard from "../../components/ProductCard";
+import {
+  ProductCardSkeleton,
+  HeroSkeleton,
+} from "../../components/SkeletonLoader";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 const HORIZONTAL_CARD_WIDTH = Math.floor((width - 40 - 20) / 2.3);
 
 export default function HomeScreen() {
-  const { 
-    wishlist, 
-    toggleWishlist, 
-    showToast, 
-    liveProducts, 
-    liveCategories, 
-    isLoadingCatalogue, 
-    loadCatalogueData 
+  const {
+    wishlist,
+    toggleWishlist,
+    showToast,
+    liveProducts,
+    liveCategories,
+    isLoadingCatalogue,
+    loadCatalogueData,
   } = useApp();
   const { navigate, openModal } = useNavigation();
 
-  const [activeCategory, setActiveCategory] = useState('all');
+  const [activeCategory, setActiveCategory] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [campaigns, setCampaigns] = useState([]);
+  useEffect(() => {
+    let active = true;
+    fetchStorefrontContent()
+      .then((items) => {
+        if (active) setCampaigns(items);
+      })
+      .catch(() => {
+        if (active) setCampaigns([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isLoadingCatalogue]);
 
   const onRefresh = async () => {
     setRefreshing(true);
     try {
       await loadCatalogueData();
-      showToast('Catalogue refreshed from Supabase');
+      showToast("Catalogue refreshed from Supabase");
     } catch {
-      showToast('Offline fallback active');
+      showToast("Offline fallback active");
     } finally {
       setRefreshing(false);
     }
   };
 
   const handleSelectProduct = (product) => {
-    navigate('product-detail', { productId: product.id, product });
+    navigate("product-detail", { productId: product.id, product });
   };
 
-  const productsToDisplay = liveProducts && liveProducts.length > 0 ? liveProducts : PRODUCTS;
+  const productsToDisplay = liveProducts || [];
   const filteredProducts = productsToDisplay.filter((p) =>
-    activeCategory === 'all' ? true : p.category === activeCategory
+    activeCategory === "all" ? true : p.category === activeCategory,
   );
 
   return (
@@ -76,7 +93,7 @@ export default function HomeScreen() {
       {/* 1. Search Bar with Filter Button */}
       <TouchableOpacity
         activeOpacity={0.9}
-        onPress={() => navigate('search')}
+        onPress={() => navigate("search")}
         style={styles.searchTouchable}
         accessibilityRole="button"
         accessibilityLabel="Search products"
@@ -85,8 +102,8 @@ export default function HomeScreen() {
           <SearchBar
             value=""
             onChangeText={() => {}}
-            onFilterPress={() => openModal('search-filters')}
-            onScanPress={() => openModal('search-filters')}
+            onFilterPress={() => openModal("search-filters")}
+            onScanPress={() => openModal("search-filters")}
           />
         </View>
       </TouchableOpacity>
@@ -96,9 +113,13 @@ export default function HomeScreen() {
         <HeroSkeleton />
       ) : (
         <HeroCarousel
-          onCtaPress={() => {
-            const featured = productsToDisplay[0] || PRODUCTS[0];
-            navigate('product-detail', { productId: featured.id, product: featured });
+          campaigns={campaigns.filter((c) => c.placement === "home_hero")}
+          onCtaPress={(campaign) => {
+            if (campaign.targetType === "product")
+              navigate("product-detail", { productId: campaign.targetId });
+            else if (campaign.targetType === "merchant")
+              navigate("merchant-store", { merchantId: campaign.targetId });
+            else navigate("category", { categorySlug: campaign.targetSlug });
           }}
         />
       )}
@@ -108,11 +129,22 @@ export default function HomeScreen() {
         categories={liveCategories}
         activeCategoryId={activeCategory}
         onSelectCategory={(id) => {
-          if (id === 'more') {
-            navigate('category', { categorySlug: 'all' });
+          if (id === "more") {
+            navigate("category", { categorySlug: "all" });
           } else {
             setActiveCategory(id);
           }
+        }}
+      />
+
+      <HeroCarousel
+        campaigns={campaigns.filter((c) => c.placement === "home_collection")}
+        onCtaPress={(campaign) => {
+          if (campaign.targetType === "product")
+            navigate("product-detail", { productId: campaign.targetId });
+          else if (campaign.targetType === "merchant")
+            navigate("merchant-store", { merchantId: campaign.targetId });
+          else navigate("category", { categorySlug: campaign.targetSlug });
         }}
       />
 
@@ -123,27 +155,33 @@ export default function HomeScreen() {
       <View style={styles.sectionHeader}>
         <View style={styles.titleTextWrapper}>
           <Text style={styles.sectionTitle}>
-            {activeCategory === 'all'
-              ? 'Top Picks For You'
+            {activeCategory === "all"
+              ? "Top Picks For You"
               : `${liveCategories.find((c) => c.id === activeCategory)?.name || activeCategory} Collection`}
           </Text>
-          <Text style={styles.sectionSub}>Handpicked quality, just for you</Text>
+          <Text style={styles.sectionSub}>
+            Handpicked quality, just for you
+          </Text>
         </View>
 
         <TouchableOpacity
           style={styles.seeAllContainer}
           activeOpacity={0.75}
-          onPress={() => navigate('category', { categorySlug: activeCategory })}
+          onPress={() => navigate("category", { categorySlug: activeCategory })}
           accessibilityRole="button"
           accessibilityLabel="View all products"
         >
           <Text style={styles.seeAllText}>View all</Text>
-          <Ionicons name="chevron-forward" size={14} color={COLORS.emeraldPrimary} />
+          <Ionicons
+            name="chevron-forward"
+            size={14}
+            color={COLORS.emeraldPrimary}
+          />
         </TouchableOpacity>
       </View>
 
       {/* 6. Product Showcase Horizontal Scroll & Grid */}
-      {loading ? (
+      {isLoadingCatalogue ? (
         <View style={styles.productGrid}>
           {[1, 2, 3, 4].map((i) => (
             <ProductCardSkeleton key={i} />
@@ -192,12 +230,12 @@ const styles = StyleSheet.create({
     paddingBottom: 110,
   },
   searchTouchable: {
-    width: '100%',
+    width: "100%",
   },
   sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     marginTop: 6,
     marginBottom: 12,
@@ -207,28 +245,28 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 21,
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontWeight: '700',
-    color: '#0F382C',
+    fontFamily: "PlayfairDisplay-Bold",
+    fontWeight: "700",
+    color: "#0F382C",
     letterSpacing: -0.3,
   },
   sectionSub: {
     fontSize: 12,
-    fontFamily: 'PlusJakartaSans-Regular',
-    color: '#7E827A',
+    fontFamily: "PlusJakartaSans-Regular",
+    color: "#7E827A",
     marginTop: 2,
   },
   seeAllContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 2,
     paddingVertical: 4,
   },
   seeAllText: {
     fontSize: 13,
-    fontFamily: 'PlusJakartaSans-Bold',
-    fontWeight: '700',
-    color: '#0F382C',
+    fontFamily: "PlusJakartaSans-Bold",
+    fontWeight: "700",
+    color: "#0F382C",
   },
   horizontalProductsContent: {
     paddingHorizontal: 20,
@@ -236,8 +274,8 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   productGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     paddingHorizontal: 20,
     columnGap: 14,
     rowGap: 16,

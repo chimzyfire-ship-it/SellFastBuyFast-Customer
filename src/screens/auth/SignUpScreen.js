@@ -81,7 +81,7 @@ export default function SignUpScreen() {
     try {
       const res = await signUp(name, email, phone, password);
       if (res?.success !== false) {
-        navigate('auth-verify', { email, phone, name });
+        navigate(res.requiresEmailConfirmation ? 'auth-signin' : 'home');
       }
     } finally {
       setIsLoading(false);

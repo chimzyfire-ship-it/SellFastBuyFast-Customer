@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { requestAccountDeletion } from '../../services/customerCareService';
+import { createIdempotencyKey } from '../../services/apiClient';
+import React, { useState, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -18,6 +20,8 @@ import { useNavigation } from '../../navigation/NavigationContext';
 export default function PrivacyScreen() {
   const { showToast, signOut } = useApp();
   const { goBack } = useNavigation();
+  const deletionKey = useRef(createIdempotencyKey('account-deletion'));
+  const deletionPending = useRef(false);
 
   const [marketingEmails, setMarketingEmails] = useState(true);
   const [dataSharing, setDataSharing] = useState(false);
@@ -42,9 +46,12 @@ export default function PrivacyScreen() {
         {
           text: 'Proceed with Deletion',
           style: 'destructive',
-          onPress: () => {
-            showToast && showToast('Account deletion request initiated');
-            signOut && signOut();
+          onPress: async () => {
+            if(deletionPending.current)return;
+            deletionPending.current=true;
+            try {await requestAccountDeletion(deletionKey.current);showToast && showToast('Account deletion review requested');await signOut?.();}
+            catch(error){showToast && showToast(error.message || 'Your request could not be submitted. Please retry.');}
+            finally{deletionPending.current=false;}
           },
         },
         { text: 'Cancel', style: 'cancel' },

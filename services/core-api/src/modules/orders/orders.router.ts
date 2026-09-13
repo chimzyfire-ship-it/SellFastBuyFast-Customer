@@ -102,6 +102,11 @@ ordersRouter.post(
       }
 
       const result = await db.transaction(async (tx) => {
+        // Profile lock serializes checkout with an admin purchase restriction.
+        await tx.execute(sql`select id from profiles where id=${req.user!.id} for share`);
+        const controls = await tx.execute(sql`select restricted,deletion_requested_at from admin_customer_controls where id=${req.user!.id}`);
+        if (controls[0]?.restricted || controls[0]?.deletion_requested_at) throw errors.forbidden('New purchases are unavailable while this account is under review.');
+
         // Merchant eligibility is checked while locked. The client may show
         // vacation stores for discovery, but the server remains authoritative
         // before it reserves stock or initializes a payment attempt.
@@ -378,7 +383,8 @@ ordersRouter.post('/:id/cancel', requireAuth, idempotency('order-cancel'), async
       const activeReservations = await tx
         .select()
         .from(inventoryReservations)
-        .where(sql`${inventoryReservations.orderId} = ${id} AND ${inventoryReservations.status} = 'active'`);
+        .where(sql`${inventoryReservations.orderId} = ${id} AND ${inventoryReservations.status} = 'active'`)
+        .orderBy(asc(inventoryReservations.variantId));
 
       for (const reservation of activeReservations) {
         await tx

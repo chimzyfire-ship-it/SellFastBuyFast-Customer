@@ -7,7 +7,7 @@ A curated Nigerian marketplace with an Expo shopper app, an Express Core API, an
 | Surface | Repository | Stack | Description |
 | :--- | :--- | :--- | :--- |
 | **Customer App** | [SellFastBuyFast-Customer](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Customer) | Expo / React Native | Shopper discovery, bag, multi-step checkout & tracking. |
-| **Admin Portal** | [SellFastBuyFast-Admin](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Admin) | Portal prototype | Ops workflow prototype; production role-aware portal remains a separate delivery item. |
+| **Admin Portal** | [SellFastBuyFast-Admin](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Admin) | Static web app | Role-aware operations frontend and persistent admin API; deployment and provider acceptance remain separate. |
 | **Vendor Portal** | [SellFastBuyFast-Vendor](https://github.com/chimzyfire-ship-it/SellFastBuyFast-Vendor) | Static web app | Authenticated merchant catalogue, fulfilment, returns, profile, and verification workspace. |
 
 ---
@@ -60,3 +60,13 @@ python3 -m http.server 4173
 ```
 
 Set the public Supabase URL, public anon key, and Core API URL in the ignored `vendor-portal/config.js`. Do not put a database URL, service-role key, Paystack key, or any other server secret in that file. The portal provides real catalogue/stock, product-submission, fulfilment, return-decision, business-profile, verification, and team-roster screens. Payouts, settlement balances, bank setup, refunds, and provider actions are visibly deferred until the dedicated payment module is built.
+
+## Admin portal
+
+The admin frontend in `admin-portal/` uses Supabase for staff authentication and the Core API for all business operations. It includes merchant and catalogue review, customer care, order exceptions, finance review, campaigns, access management, and audit views. No sample marketplace data or simulated decisions are shipped.
+
+See [admin setup](admin-portal/README.md) and the [backend integration handoff](admin-portal/BACKEND_ENGINEER_ADMIN_HANDOFF.md). The Core API includes authenticated admin read models and commands. See [backend delivery and rollout](docs/operations/admin-operations-integration.md) for migrations, worker configuration, verification, and the deferred provider-finance boundary.
+
+## Non-payment deployment
+
+The API, admin portal, and vendor portal are deployed with scheduled Supabase maintenance. Payments remain disabled. See [release status, verification, and remaining service setup](docs/operations/nonpayment-release.md).

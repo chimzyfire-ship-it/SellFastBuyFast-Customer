@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   StyleSheet,
   Text,
@@ -7,25 +7,44 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Platform,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../../theme/colors';
-import { PRODUCTS, CATEGORIES } from '../../data/mockData';
-import { useApp } from '../../context/AppContext';
-import { useNavigation } from '../../navigation/NavigationContext';
-import ProductCard from '../../components/ProductCard';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "../../theme/colors";
+import HeroCarousel from "../../components/HeroCarousel";
+import { fetchStorefrontContent } from "../../services/catalogService";
+import { useApp } from "../../context/AppContext";
+import { useNavigation } from "../../navigation/NavigationContext";
+import ProductCard from "../../components/ProductCard";
 
 export default function CategoryScreen() {
-  const { wishlist, toggleWishlist } = useApp();
+  const { wishlist, toggleWishlist, liveProducts, liveCategories } = useApp();
+  const PRODUCTS = liveProducts || [];
+  const CATEGORIES = liveCategories || [];
+  const [campaigns, setCampaigns] = useState([]);
+  useEffect(() => {
+    let active = true;
+    fetchStorefrontContent()
+      .then((items) => {
+        if (active)
+          setCampaigns(items.filter((c) => c.placement === "category_feature"));
+      })
+      .catch(() => {
+        if (active) setCampaigns([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const { currentRoute, goBack, navigate, openModal } = useNavigation();
 
-  const categorySlug = currentRoute.params?.categorySlug || 'all';
+  const categorySlug = currentRoute.params?.categorySlug || "all";
   const [selectedCat, setSelectedCat] = useState(categorySlug);
+  useEffect(() => setSelectedCat(categorySlug), [categorySlug]);
 
   const activeCategoryObj = CATEGORIES.find((c) => c.id === selectedCat);
 
   const filteredProducts = PRODUCTS.filter((p) =>
-    selectedCat === 'all' ? true : p.category === selectedCat
+    selectedCat === "all" ? true : p.category === selectedCat,
   );
 
   return (
@@ -35,23 +54,33 @@ export default function CategoryScreen() {
           <Ionicons name="arrow-back" size={22} color={COLORS.emeraldPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
-          {selectedCat === 'all' ? 'All Collections' : activeCategoryObj?.name || selectedCat}
+          {selectedCat === "all"
+            ? "All Collections"
+            : activeCategoryObj?.name || selectedCat}
         </Text>
-        <TouchableOpacity style={styles.filterButton} onPress={() => openModal('search-filters')}>
-          <Ionicons name="options-outline" size={20} color={COLORS.emeraldPrimary} />
+        <TouchableOpacity
+          style={styles.filterButton}
+          onPress={() => openModal("search-filters")}
+        >
+          <Ionicons
+            name="options-outline"
+            size={20}
+            color={COLORS.emeraldPrimary}
+          />
         </TouchableOpacity>
       </View>
 
       {/* Category Pills Header */}
       <View style={styles.pillsRow}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillsScroll}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.pillsScroll}
+        >
           {CATEGORIES.map((cat) => (
             <TouchableOpacity
               key={cat.id}
-              style={[
-                styles.pill,
-                selectedCat === cat.id && styles.pillActive,
-              ]}
+              style={[styles.pill, selectedCat === cat.id && styles.pillActive]}
               onPress={() => setSelectedCat(cat.id)}
             >
               <Text
@@ -68,9 +97,32 @@ export default function CategoryScreen() {
       </View>
 
       {/* Products Grid */}
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <HeroCarousel
+          campaigns={campaigns.filter(
+            (c) =>
+              selectedCat === "all" ||
+              c.targetSlug === selectedCat ||
+              PRODUCTS.some(
+                (p) =>
+                  p.category === selectedCat &&
+                  (p.id === c.targetId || p.merchantId === c.targetId),
+              ),
+          )}
+          onCtaPress={(c) => {
+            if (c.targetType === "category") setSelectedCat(c.targetSlug);
+            else if (c.targetType === "product")
+              navigate("product-detail", { productId: c.targetId });
+            else navigate("merchant-store", { merchantId: c.targetId });
+          }}
+        />
         <View style={styles.metaHeader}>
-          <Text style={styles.countText}>Showing {filteredProducts.length} items</Text>
+          <Text style={styles.countText}>
+            Showing {filteredProducts.length} items
+          </Text>
         </View>
 
         <View style={styles.productGrid}>
@@ -80,14 +132,22 @@ export default function CategoryScreen() {
               product={item}
               isWishlisted={wishlist.includes(item.id)}
               onToggleWishlist={toggleWishlist}
-              onPress={(p) => navigate('product-detail', { productId: p.id, product: p })}
+              onPress={(p) =>
+                navigate("product-detail", { productId: p.id, product: p })
+              }
             />
           ))}
 
           {filteredProducts.length === 0 && (
             <View style={styles.noResults}>
-              <Ionicons name="grid-outline" size={42} color={COLORS.textMuted} />
-              <Text style={styles.noResultsText}>No items available in this category yet</Text>
+              <Ionicons
+                name="grid-outline"
+                size={42}
+                color={COLORS.textMuted}
+              />
+              <Text style={styles.noResultsText}>
+                No items available in this category yet
+              </Text>
             </View>
           )}
         </View>
@@ -99,13 +159,13 @@ export default function CategoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
   },
   header: {
     height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justify: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justify: "space-between",
     paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
@@ -115,8 +175,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 17,
-    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
-    fontWeight: '700',
+    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
+    fontWeight: "700",
     color: COLORS.emeraldPrimary,
   },
   filterButton: {
@@ -145,12 +205,12 @@ const styles = StyleSheet.create({
   },
   pillText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: "500",
     color: COLORS.textPrimary,
   },
   pillTextActive: {
     color: COLORS.white,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   scrollContent: {
     paddingBottom: 100,
@@ -161,20 +221,20 @@ const styles = StyleSheet.create({
   },
   countText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: "500",
     color: COLORS.textSecondary,
   },
   productGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     paddingHorizontal: 20,
     columnGap: 16,
     rowGap: 24,
   },
   noResults: {
-    width: '100%',
+    width: "100%",
     padding: 40,
-    alignItems: 'center',
+    alignItems: "center",
   },
   noResultsText: {
     fontSize: 14,

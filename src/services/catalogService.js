@@ -60,3 +60,5 @@ export async function fetchLiveProducts(categorySlug) {
     return mockOrThrow(fallback, error);
   }
 }
+
+export function fetchStorefrontContent() { return apiRequest('/v1/catalog/content', {auth:false}); }

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -8,52 +8,33 @@ import {
   ScrollView,
   Dimensions,
   Platform,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../theme/colors';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "../theme/colors";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 const CARD_WIDTH = width - 40;
 
-const SLIDES = [
-  {
-    id: '1',
-    subtitle: 'NEW ARRIVALS',
-    title: 'Elevate your\neveryday',
-    description: 'Discover quality, style and value\ncrafted for modern living.',
-    buttonText: 'Shop Now',
-    image: require('../../assets/hero-handbag.jpg'),
-  },
-  {
-    id: '2',
-    subtitle: 'PREMIUM TECH',
-    title: 'Precision sound\n& smart living',
-    description: 'Next-gen audio, wearables and\ngadgets for seamless lifestyle.',
-    buttonText: 'Shop Now',
-    image: { uri: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=800&q=80' },
-  },
-  {
-    id: '3',
-    subtitle: 'HOME LUXURY',
-    title: 'Curated modern\ninteriors',
-    description: 'Handcrafted accent furniture and\ncontemporary living accents.',
-    buttonText: 'Shop Now',
-    image: { uri: 'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80' },
-  },
-];
-
-export default function HeroCarousel({ onCtaPress }) {
+export default function HeroCarousel({ onCtaPress, campaigns = [] }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollViewRef = useRef(null);
+  const slides = campaigns.map((c) => ({
+    ...c,
+    subtitle: "FEATURED",
+    description: "Explore this collection from our marketplace.",
+    buttonText: "Explore",
+    image: c.imageUrl,
+  }));
 
   const handleScroll = (event) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const index = Math.round(contentOffsetX / CARD_WIDTH);
-    if (index !== activeIndex && index >= 0 && index < SLIDES.length) {
+    if (index !== activeIndex && index >= 0 && index < slides.length) {
       setActiveIndex(index);
     }
   };
 
+  if (!slides.length) return null;
   return (
     <View style={styles.outerContainer}>
       <ScrollView
@@ -68,7 +49,7 @@ export default function HeroCarousel({ onCtaPress }) {
         snapToAlignment="center"
         contentContainerStyle={styles.scrollContent}
       >
-        {SLIDES.map((slide) => (
+        {slides.map((slide) => (
           <View key={slide.id} style={styles.card}>
             {/* Left Content Area */}
             <View style={styles.contentContainer}>
@@ -87,7 +68,11 @@ export default function HeroCarousel({ onCtaPress }) {
               >
                 <Text style={styles.buttonText}>{slide.buttonText}</Text>
                 <View style={styles.btnIconBadge}>
-                  <Ionicons name="chevron-forward" size={13} color={COLORS.white} />
+                  <Ionicons
+                    name="chevron-forward"
+                    size={13}
+                    color={COLORS.white}
+                  />
                 </View>
               </TouchableOpacity>
             </View>
@@ -95,9 +80,14 @@ export default function HeroCarousel({ onCtaPress }) {
             {/* Right Image Container */}
             <View style={styles.imageContainer}>
               <Image
-                source={typeof slide.image === 'string' ? { uri: slide.image } : slide.image}
+                source={
+                  typeof slide.image === "string"
+                    ? { uri: slide.image }
+                    : slide.image
+                }
                 style={styles.heroImage}
                 resizeMode="cover"
+                accessibilityLabel={slide.altText}
               />
             </View>
           </View>
@@ -106,7 +96,7 @@ export default function HeroCarousel({ onCtaPress }) {
 
       {/* Pagination Dots */}
       <View style={styles.pagination}>
-        {SLIDES.map((_, index) => (
+        {slides.map((_, index) => (
           <TouchableOpacity
             key={index}
             onPress={() => {
@@ -138,14 +128,14 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     height: 200,
-    backgroundColor: '#EBE7DF',
+    backgroundColor: "#EBE7DF",
     borderRadius: 24,
-    flexDirection: 'row',
-    overflow: 'hidden',
-    position: 'relative',
+    flexDirection: "row",
+    overflow: "hidden",
+    position: "relative",
     borderWidth: 1,
-    borderColor: '#E2DDD3',
-    shadowColor: '#000',
+    borderColor: "#E2DDD3",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
@@ -156,45 +146,45 @@ const styles = StyleSheet.create({
     paddingLeft: 18,
     paddingRight: 6,
     paddingVertical: 18,
-    justifyContent: 'center',
+    justifyContent: "center",
     zIndex: 2,
   },
   subtitle: {
     fontSize: 10,
-    fontWeight: '800',
-    fontFamily: 'PlusJakartaSans-ExtraBold',
-    color: '#C69B56',
+    fontWeight: "800",
+    fontFamily: "PlusJakartaSans-ExtraBold",
+    color: "#C69B56",
     letterSpacing: 1.2,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     marginBottom: 4,
   },
   title: {
     fontSize: 23,
     lineHeight: 27,
-    fontFamily: 'PlayfairDisplay-Bold',
-    fontWeight: '700',
-    color: '#0F382C',
+    fontFamily: "PlayfairDisplay-Bold",
+    fontWeight: "700",
+    color: "#0F382C",
     marginBottom: 6,
     letterSpacing: -0.3,
   },
   description: {
     fontSize: 11,
     lineHeight: 15,
-    fontFamily: 'PlusJakartaSans-Medium',
-    color: '#5C6057',
+    fontFamily: "PlusJakartaSans-Medium",
+    color: "#5C6057",
     marginBottom: 12,
   },
   ctaButtonPill: {
-    backgroundColor: '#0F382C',
+    backgroundColor: "#0F382C",
     paddingVertical: 6,
     paddingLeft: 14,
     paddingRight: 6,
     borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    alignSelf: 'flex-start',
-    shadowColor: '#0F382C',
+    alignSelf: "flex-start",
+    shadowColor: "#0F382C",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
@@ -203,34 +193,34 @@ const styles = StyleSheet.create({
   buttonText: {
     color: COLORS.white,
     fontSize: 12,
-    fontFamily: 'PlusJakartaSans-Bold',
-    fontWeight: '700',
+    fontFamily: "PlusJakartaSans-Bold",
+    fontWeight: "700",
     letterSpacing: 0.2,
     includeFontPadding: false,
-    textAlignVertical: 'center',
+    textAlignVertical: "center",
   },
   btnIconBadge: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#C69B56',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#C69B56",
+    alignItems: "center",
+    justifyContent: "center",
   },
   imageContainer: {
     flex: 1,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
   },
   heroImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   pagination: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: 10,
     marginBottom: 4,
     gap: 6,
@@ -241,10 +231,10 @@ const styles = StyleSheet.create({
   },
   activeDot: {
     width: 18,
-    backgroundColor: '#0F382C',
+    backgroundColor: "#0F382C",
   },
   inactiveDot: {
     width: 5,
-    backgroundColor: '#D5D0C5',
+    backgroundColor: "#D5D0C5",
   },
 });

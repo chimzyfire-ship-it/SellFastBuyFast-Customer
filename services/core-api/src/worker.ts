@@ -7,8 +7,7 @@ const stop = startWorkers();
 console.log('SellFastBuyFast workers started.');
 
 function shutdown(): void {
-  stop();
-  void closeDatabase().finally(() => process.exit(0));
+  void stop().then(() => closeDatabase()).finally(() => process.exit(0));
 }
 
 process.on('SIGINT', shutdown);

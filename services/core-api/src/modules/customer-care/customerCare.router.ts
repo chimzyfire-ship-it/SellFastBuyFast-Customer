@@ -1,3 +1,5 @@
+import { sql } from 'drizzle-orm';
+import { reviewCommand, requireFinancialEnabled } from '../admin/admin.legacy.js';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { and, asc, desc, eq, inArray, notInArray } from 'drizzle-orm';
@@ -56,6 +58,19 @@ function assertMerchantCaseAccess(req: Request, merchantId: string): void {
 }
 
 customerCareRouter.use(requireAuth);
+customerCareRouter.post('/account/deletion-request', idempotency('account-deletion-request'), async (req, res) => {
+  try {
+    if(!req.get('Idempotency-Key'))throw errors.validation('An Idempotency-Key is required.');
+    const data = await db.transaction(async tx => {
+      await tx.execute(sql`select id from profiles where id=${req.user!.id} for update`);
+      await tx.execute(sql`insert into admin_customer_controls(id,deletion_requested_at) values(${req.user!.id},clock_timestamp()) on conflict(id) do update set deletion_requested_at=coalesce(admin_customer_controls.deletion_requested_at,excluded.deletion_requested_at),updated_at=clock_timestamp()`);
+      await tx.execute(sql`update profiles set updated_at=clock_timestamp() where id=${req.user!.id}`);
+      const rows=await tx.execute(sql`select deletion_requested_at as "requestedAt" from admin_customer_controls where id=${req.user!.id}`);
+      return {status:'deletion_requested',...rows[0]};
+    });
+    res.json({success:true,data});
+  }catch(error){sendError(res,error);}
+});
 
 customerCareRouter.get('/tickets', async (req: Request, res: Response) => {
   try {
@@ -170,7 +185,7 @@ customerCareRouter.post('/tickets/:id/messages', idempotency('support-ticket-mes
 customerCareRouter.post(
   '/tickets/:id/agent-messages',
   requireRole('support_agent', 'operations_admin'),
-  idempotency('support-ticket-agent-message'),
+  reviewCommand('support-ticket-agent-message', 'support', () => 'reply_ticket'),
   async (req: Request, res: Response) => {
     try {
       const parsed = MessageSchema.safeParse(req.body);
@@ -209,7 +224,7 @@ customerCareRouter.post(
 customerCareRouter.post(
   '/tickets/:id/close',
   requireRole('support_agent', 'operations_admin'),
-    idempotency('support-ticket-close'),
+    reviewCommand('support-ticket-close', 'support', () => 'close_ticket'),
   async (req: Request, res: Response) => {
     try {
       const ticket = await db.transaction(async (tx) => {
@@ -251,14 +266,15 @@ customerCareRouter.post('/returns', idempotency('return-request-create'), async 
     const parsed = ReturnSchema.safeParse(req.body);
     if (!parsed.success) throw errors.validation(parsed.error.message);
     const created = await db.transaction(async (tx) => {
-      const [record] = await tx.select({ order: orders, shipment: shipments })
-        .from(orders).leftJoin(shipments, eq(shipments.orderId, orders.id))
-        .where(eq(orders.id, parsed.data.orderId)).limit(1).for('update');
-      if (!record || record.order.buyerId !== req.user!.id) throw errors.notFound('Order not found.');
+      const [order] = await tx.select().from(orders).where(eq(orders.id, parsed.data.orderId)).limit(1).for('update');
+      if (!order || order.buyerId !== req.user!.id) throw errors.notFound('Order not found.');
+      const [shipment] = await tx.select().from(shipments).where(eq(shipments.orderId, order.id)).limit(1);
+      const record = { order, shipment };
       assertReturnEligibility({
         orderStatus: record.order.status,
         deliveredAt: record.shipment?.deliveredAt ?? null,
         returnWindowDays: config.fulfilment.returnWindowDays,
+        returnWindowEndsAt: record.order.returnWindowEndsAt,
       });
       const [existing] = await tx.select({ id: returnRequests.id }).from(returnRequests)
         .where(and(
@@ -319,7 +335,7 @@ customerCareRouter.get('/merchant/:merchantId/returns', async (req: Request, res
 customerCareRouter.post(
   '/returns/:id/decision',
   requireRole('merchant_owner', 'merchant_staff', 'staff'),
-  idempotency('return-decision'),
+  reviewCommand('return-decision', 'returns', body => body.decision === 'approved' ? 'approve_return' : 'reject_return'),
   async (req: Request, res: Response) => {
     try {
       const parsed = ReturnDecisionSchema.safeParse(req.body);
@@ -363,7 +379,7 @@ customerCareRouter.post(
 customerCareRouter.post(
   '/returns/:id/received',
   requireRole('support_agent', 'operations_admin'),
-  idempotency('return-received'),
+  reviewCommand('return-received', 'returns', () => 'receive_return'),
   async (req: Request, res: Response) => {
     try {
       const result = await db.transaction(async (tx) => {

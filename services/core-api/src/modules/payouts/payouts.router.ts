@@ -1,3 +1,4 @@
+import { reviewCommand, requireFinancialEnabled } from '../admin/admin.legacy.js';
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
@@ -76,6 +77,7 @@ payoutsRouter.get('/merchant/:merchantId/balance', requireAuth, async (req: Requ
 
 payoutsRouter.post(
   '/request',
+  requireFinancialEnabled,
   requireAuth,
   requireRole('merchant_owner', 'merchant_staff', 'staff'),
   idempotency('payout-request'),
@@ -153,7 +155,7 @@ payoutsRouter.post(
   '/:id/approve',
   requireAuth,
   requireRole('finance_reviewer', 'operations_admin'),
-  idempotency('payout-approve'),
+  reviewCommand('payout-approve', 'payouts', () => 'approve_payout'),
   async (req: Request, res: Response) => {
     try {
       const parsed = DecisionSchema.safeParse(req.body);
@@ -190,7 +192,7 @@ payoutsRouter.post(
   '/:id/reject',
   requireAuth,
   requireRole('finance_reviewer', 'operations_admin'),
-  idempotency('payout-reject'),
+  reviewCommand('payout-reject', 'payouts', () => 'reject_payout'),
   async (req: Request, res: Response) => {
     try {
       const parsed = DecisionSchema.safeParse(req.body);
@@ -239,7 +241,7 @@ payoutsRouter.post(
   '/:id/dispatch',
   requireAuth,
   requireRole('finance_reviewer', 'operations_admin'),
-  idempotency('payout-dispatch'),
+  reviewCommand('payout-dispatch', 'payouts', () => 'dispatch_payout'),
   async (req: Request, res: Response) => {
     try {
       const dispatched = await db.transaction(async (tx) => {

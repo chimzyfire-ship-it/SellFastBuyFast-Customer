@@ -1,0 +1,6 @@
+tests/
+*.md
+*.d.ts
+config.example.js
+config.local.js
+.env*

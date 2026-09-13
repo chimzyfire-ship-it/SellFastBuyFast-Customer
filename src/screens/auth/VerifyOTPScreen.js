@@ -11,19 +11,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../theme/colors';
 import { useApp } from '../../context/AppContext';
 import { useNavigation } from '../../navigation/NavigationContext';
+import { supabase } from '../../lib/supabase';
 import AuthLayout from '../../components/auth/AuthLayout';
 
 export default function VerifyOTPScreen() {
-  const { signUp, intendedRoute, setIntendedRoute, showToast } = useApp();
+  const { intendedRoute, setIntendedRoute, showToast } = useApp();
   const { currentRoute, goBack, reset } = useNavigation();
 
   const params = currentRoute.params || {};
-  const phone = params.phone || '+234 803 123 4567';
-  const name = params.name || 'Amina Bello';
-  const email = params.email || 'amina.bello@example.ng';
+  const email = params.email || '';
+  const name = params.name || 'there';
 
-  const [otp, setOtp] = useState(['5', '9', '2', '', '', '']);
-  const [focusedIndex, setFocusedIndex] = useState(3);
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [focusedIndex, setFocusedIndex] = useState(0);
   const [timer, setTimer] = useState(45);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -52,38 +52,36 @@ export default function VerifyOTPScreen() {
     }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
+    if (isLoading || !email || !/^\d{6}$/.test(otp.join(''))) {showToast('Enter your email and the complete verification code.');return;}
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      signUp(name, email, phone);
+    try {
+      const {error} = await supabase.auth.verifyOtp({email, token: otp.join(''), type:'signup'});
+      if (error) throw error;
       showToast(`Welcome, ${name}!`);
-      if (intendedRoute) {
-        const target = intendedRoute;
-        setIntendedRoute(null);
-        reset(target.name, target.params);
-      } else {
-        reset('home');
-      }
-    }, 500);
+      if (intendedRoute) {const target=intendedRoute;setIntendedRoute(null);reset(target.name,target.params);} else reset('home');
+    } catch(error) {showToast(error.message || 'Verification failed. Request a new code.');}
+    finally {setIsLoading(false);}
   };
-
-  const handleResend = () => {
-    setTimer(60);
-    showToast('A new 6-digit code was sent to ' + phone);
+  const handleResend = async () => {
+    if (timer || !email || isLoading) return;
+    setIsLoading(true);
+    try {const {error} = await supabase.auth.resend({type:'signup',email});if(error)throw error;setTimer(60);showToast('Check your email for confirmation instructions.');}
+    catch(error){showToast(error.message || 'Could not resend confirmation.');}
+    finally{setIsLoading(false);}
   };
 
   return (
     <AuthLayout
       activeTab={null}
-      title="Verify Phone"
-      subtitle={`Code sent to ${phone}`}
+      title="Verify Email"
+      subtitle={email ? `Enter the code from your confirmation email: ${email}` : 'Return to sign up to request email confirmation'}
     >
       <View style={styles.formContainer}>
         {/* Change Phone Option */}
         <View style={styles.changePhoneRow}>
           <TouchableOpacity onPress={goBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={styles.changePhoneText}>Incorrect phone number? Edit</Text>
+            <Text style={styles.changePhoneText}>Incorrect email address? Go back</Text>
           </TouchableOpacity>
         </View>
 

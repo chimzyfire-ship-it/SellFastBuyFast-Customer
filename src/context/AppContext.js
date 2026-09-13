@@ -121,10 +121,10 @@ export const AppProvider = ({ children }) => {
         fetchLiveCategories(),
         fetchLiveProducts('all'),
       ]);
-      if (cats && cats.length > 0) setLiveCategories(cats);
-      if (prods && prods.length > 0) setLiveProducts(prods);
+      if (Array.isArray(cats)) setLiveCategories(cats);
+      if (Array.isArray(prods)) setLiveProducts(prods);
     } catch {
-      // Graceful fallback to mock data
+      // Keep the last confirmed catalogue on a network failure. Empty successful responses clear withdrawn listings.
     } finally {
       setIsLoadingCatalogue(false);
     }
@@ -221,14 +221,14 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const signUp = async (name, email, phone, password = 'Password123!') => {
+  const signUp = async (name, email, phone, password) => {
     setAuthLoading(true);
     try {
       if (!email.includes('@')) throw new Error('A valid email address is required.');
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: name, phone } },
+        options: { data: { full_name: name, phone }, emailRedirectTo: `${process.env.EXPO_PUBLIC_ACCOUNT_URL || 'https://www.sellfastbuyfast.com'}/account-access.html` },
       });
       if (error) throw error;
       if (!data?.user) throw new Error('Account creation did not return a user.');

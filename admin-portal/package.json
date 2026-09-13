@@ -1,0 +1,10 @@
+{
+  "name": "sellfastbuyfast-admin",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 4174 --bind 127.0.0.1",
+    "check": "node --check app.js && node --check ui.mjs && node --check contracts.mjs && node --check api.mjs",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

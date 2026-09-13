@@ -1,9 +1,13 @@
+import { storefrontContent } from '../admin/admin.workers.js';
+import { sendError } from '../../lib/errors.js';
 import { Router, Request, Response } from 'express';
 import { db } from '../../db/client.js';
 import { categories, products, productVariants, productMedia, merchants, inventoryLevels } from '../../db/schema.js';
 import { eq, and, inArray } from 'drizzle-orm';
 
 export const catalogRouter = Router();
+
+catalogRouter.get('/content', async (_req, res) => {try {res.json({success:true,data:await storefrontContent()});}catch(error){sendError(res,error);}});
 
 // GET /v1/catalog/categories
 catalogRouter.get('/categories', async (_req: Request, res: Response) => {
