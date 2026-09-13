@@ -93,7 +93,9 @@ export const config = {
   databaseUrl: value("DATABASE_URL"),
   operationsSecret: value("OPERATIONS_RUNNER_SECRET"),
   admin: {
-    requireMfa: process.env.ADMIN_REQUIRE_MFA !== "false" || isProduction,
+    requireMfa:
+      process.env.ADMIN_REQUIRE_MFA === "true" ||
+      (process.env.ADMIN_REQUIRE_MFA !== "false" && isProduction),
     financeEnabled: process.env.ADMIN_FINANCE_ENABLED === "true",
     cursorSecret: value("ADMIN_CURSOR_SECRET"),
     portalUrl: value("ADMIN_PORTAL_URL"),

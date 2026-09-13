@@ -39,7 +39,13 @@ export function createApp(): Express {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      crossOriginOpenerPolicy: false,
+      contentSecurityPolicy: false,
+    }),
+  );
   app.use(
     cors({
       origin(origin, callback) {
@@ -53,15 +59,7 @@ export function createApp(): Express {
       },
       credentials: false,
       exposedHeaders: ["X-Request-ID"],
-      allowedHeaders: [
-        "Authorization",
-        "Content-Type",
-        "Idempotency-Key",
-        "If-Match",
-        // Safari adds these for fetch cache: no-store; allow its preflight.
-        "Cache-Control",
-        "Pragma",
-      ],
+      maxAge: 86400,
     }),
   );
   app.use(
