@@ -45,6 +45,10 @@ const state = {
   modal: null,
   authMode: 'signin', // 'signin' | 'signup' | 'verify-otp' | 'recover' | 'onboarding'
   pendingEmail: '',
+  pendingPassword: '',
+  pendingFullName: '',
+  pendingBusinessName: '',
+  pendingPhone: '',
   authError: '',
   formError: '',
   productErrors: {},
@@ -314,11 +318,24 @@ async function api(path, options = {}) {
 
 function showNotice(message, type = 'success') {
   state.notice = { message, type };
-  render();
+  let container = document.querySelector('.toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'toast-container';
+    container.setAttribute('aria-live', 'polite');
+    root.appendChild(container);
+  }
+  container.innerHTML = `
+    <div class="toast ${type === 'error' ? 'toast-error' : 'toast-success'}" role="status">
+      ${icon(type === 'error' ? 'alert-triangle' : 'check-circle')}
+      <span>${escapeHtml(message)}</span>
+    </div>`;
+  hydrateIcons();
   window.clearTimeout(showNotice.timer);
   showNotice.timer = window.setTimeout(() => {
     state.notice = null;
-    render();
+    const c = document.querySelector('.toast-container');
+    if (c) c.remove();
   }, 4500);
 }
 
@@ -402,11 +419,13 @@ function dismissSplash() {
   const splashEl = document.getElementById('app-splash');
   if (splashEl) {
     splashEl.classList.add('fade-out');
-  }
-  setTimeout(() => {
+    setTimeout(() => {
+      splashEl.remove();
+      state.splashActive = false;
+    }, 500);
+  } else {
     state.splashActive = false;
-    render();
-  }, 500);
+  }
 }
 
 /* ==========================================================================
@@ -515,7 +534,7 @@ function renderAuthHtml() {
             <label class="form-label" for="full-name">Full Name</label>
             <div class="input-wrapper">
               <span class="input-icon-left">${icon('user')}</span>
-              <input class="input has-icon-left" id="full-name" name="fullName" type="text" placeholder="e.g. Oluwaseun Adeleke" required />
+              <input class="input has-icon-left" id="full-name" name="fullName" type="text" placeholder="e.g. Oluwaseun Adeleke" value="${escapeAttribute(state.pendingFullName || '')}" required />
             </div>
           </div>
 
@@ -523,7 +542,7 @@ function renderAuthHtml() {
             <label class="form-label" for="business-name">Store / Brand Name</label>
             <div class="input-wrapper">
               <span class="input-icon-left">${icon('store')}</span>
-              <input class="input has-icon-left" id="business-name" name="businessName" type="text" placeholder="e.g. Lagos Luxury Attire" required />
+              <input class="input has-icon-left" id="business-name" name="businessName" type="text" placeholder="e.g. Lagos Luxury Attire" value="${escapeAttribute(state.pendingBusinessName || '')}" required />
             </div>
           </div>
         </div>
@@ -541,7 +560,7 @@ function renderAuthHtml() {
             <label class="form-label" for="phone">Phone Number (+234)</label>
             <div class="input-wrapper">
               <span class="input-icon-left">${icon('phone')}</span>
-              <input class="input has-icon-left" id="phone" name="phone" type="tel" placeholder="08012345678" required />
+              <input class="input has-icon-left" id="phone" name="phone" type="tel" placeholder="08012345678" value="${escapeAttribute(state.pendingPhone || '')}" required />
             </div>
           </div>
         </div>
@@ -550,7 +569,7 @@ function renderAuthHtml() {
           <label class="form-label" for="password">Create Password</label>
           <div class="input-wrapper">
             <span class="input-icon-left">${icon('lock')}</span>
-            <input class="input has-icon-left has-icon-right" id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" required placeholder="Min. 8 characters" />
+            <input class="input has-icon-left has-icon-right" id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" value="${escapeAttribute(state.pendingPassword || '')}" required placeholder="Min. 8 characters" />
             <button type="button" class="input-icon-right-btn" data-action="toggle-password" aria-label="${state.showPassword ? 'Hide password' : 'Show password'}" title="${state.showPassword ? 'Hide password' : 'Show password'}">${icon(state.showPassword ? 'eye-off' : 'eye')}</button>
           </div>
         </div>
@@ -621,7 +640,7 @@ function renderAuthHtml() {
           </div>
           <div class="input-wrapper">
             <span class="input-icon-left">${icon('lock')}</span>
-            <input class="input has-icon-left has-icon-right" id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" autocomplete="current-password" placeholder="••••••••" required />
+            <input class="input has-icon-left has-icon-right" id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" autocomplete="current-password" placeholder="••••••••" value="${escapeAttribute(state.pendingPassword || '')}" required />
             <button type="button" class="input-icon-right-btn" data-action="toggle-password" aria-label="${state.showPassword ? 'Hide password' : 'Show password'}" title="${state.showPassword ? 'Hide password' : 'Show password'}">${icon(state.showPassword ? 'eye-off' : 'eye')}</button>
           </div>
         </div>
@@ -3495,12 +3514,20 @@ async function performServerAction(key, operation, successMessage) {
    EVENT LISTENERS & INTERACTION HANDLERS
    ========================================================================== */
 
-// Real-time tracking of auth inputs to ensure typed values (email, etc.) are never lost
+// Real-time tracking of auth inputs to ensure typed values (email, password, etc.) are never lost
 document.addEventListener('input', (event) => {
   const target = event.target;
   if (!target) return;
   if (target.id === 'email' || target.name === 'email') {
     state.pendingEmail = target.value;
+  } else if (target.id === 'password' || target.name === 'password') {
+    state.pendingPassword = target.value;
+  } else if (target.id === 'full-name' || target.name === 'fullName') {
+    state.pendingFullName = target.value;
+  } else if (target.id === 'business-name' || target.name === 'businessName') {
+    state.pendingBusinessName = target.value;
+  } else if (target.id === 'phone' || target.name === 'phone') {
+    state.pendingPhone = target.value;
   }
 });
 
@@ -3532,9 +3559,11 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'toggle-password') {
     event.preventDefault();
+    event.stopPropagation();
     const wrapper = button.closest('.input-wrapper');
     const input = wrapper?.querySelector('input') || document.getElementById('password');
     if (input) {
+      state.pendingPassword = input.value;
       const isPassword = input.type === 'password';
       input.type = isPassword ? 'text' : 'password';
       state.showPassword = isPassword;
@@ -3787,6 +3816,7 @@ document.addEventListener('click', async (event) => {
     state.categories = [];
     state.workspaceError = '';
     state.authError = '';
+    state.pendingPassword = '';
     state.authMode = 'signin';
     render();
     return;
@@ -4689,6 +4719,7 @@ document.addEventListener('submit', async (event) => {
     const email = form.elements.email?.value?.trim() || '';
     const password = form.elements.password?.value || '';
     state.pendingEmail = email;
+    state.pendingPassword = password;
 
     if (!email || !password) {
       setInlineAuthError(form, 'Please provide both your work email and password.');
@@ -4709,6 +4740,7 @@ document.addEventListener('submit', async (event) => {
       state.session = data.session;
       state.workspaceError = '';
       state.authError = '';
+      state.pendingPassword = '';
       showNotice('Signed in successfully!');
       await loadWorkspace();
     } catch (err) {

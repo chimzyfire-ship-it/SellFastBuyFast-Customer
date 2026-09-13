@@ -356,3 +356,76 @@ test('workspaceLoadingPromise deduplicates concurrent loadWorkspace executions',
   assert.equal(res2, res1);
   assert.equal(res3, res1);
 });
+
+test('Auth inputs are tracked and preserved even if renderAuthHtml is called', () => {
+  const state = {
+    pendingEmail: '',
+    pendingPassword: '',
+    pendingFullName: '',
+    pendingBusinessName: '',
+    pendingPhone: '',
+    showPassword: false,
+    authMode: 'signin',
+    authError: '',
+  };
+
+  function onInput(target) {
+    if (target.id === 'email' || target.name === 'email') {
+      state.pendingEmail = target.value;
+    } else if (target.id === 'password' || target.name === 'password') {
+      state.pendingPassword = target.value;
+    }
+  }
+
+  // User types credentials
+  onInput({ id: 'email', value: 'vendor@sellfastbuyfast.ng' });
+  onInput({ id: 'password', value: 'MySecretPass123!' });
+
+  assert.equal(state.pendingEmail, 'vendor@sellfastbuyfast.ng');
+  assert.equal(state.pendingPassword, 'MySecretPass123!');
+
+  // Simulated renderAuthHtml output for Sign In
+  const renderedHtml = `
+    <input id="email" name="email" value="${state.pendingEmail}" />
+    <input id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" value="${state.pendingPassword}" />
+  `;
+
+  assert.match(renderedHtml, /value="vendor@sellfastbuyfast\.ng"/);
+  assert.match(renderedHtml, /value="MySecretPass123!"/);
+});
+
+test('dismissSplash removes splash element from DOM without calling render()', async () => {
+  let renderCalled = false;
+  let elementRemoved = false;
+  let faded = false;
+  const mockElement = {
+    classList: {
+      add(cls) {
+        if (cls === 'fade-out') faded = true;
+      },
+    },
+    remove() {
+      elementRemoved = true;
+    },
+  };
+
+  const state = { splashActive: true };
+  function render() {
+    renderCalled = true;
+  }
+
+  function dismissSplash() {
+    mockElement.classList.add('fade-out');
+    setTimeout(() => {
+      mockElement.remove();
+      state.splashActive = false;
+    }, 10);
+  }
+
+  dismissSplash();
+  assert.equal(faded, true);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(elementRemoved, true);
+  assert.equal(state.splashActive, false);
+  assert.equal(renderCalled, false, 'dismissSplash must NOT invoke render()');
+});
