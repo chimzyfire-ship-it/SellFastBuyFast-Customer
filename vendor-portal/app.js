@@ -174,19 +174,97 @@ function idempotencyKey(prefix) {
 }
 
 class ApiError extends Error {
-  constructor(message, code = 'REQUEST_FAILED') {
+  constructor(message, code = 'REQUEST_FAILED', status = 0) {
     super(message);
     this.code = code;
+    this.status = status;
   }
 }
 
+function isAuthError(error) {
+  if (!error) return false;
+  if (error.code === 'UNAUTHORIZED' || error.status === 401) return true;
+  const msg = String(error.message || '').toLowerCase();
+  return (
+    msg.includes('token is invalid or expired') ||
+    msg.includes('session has expired') ||
+    msg.includes('session was revoked') ||
+    msg.includes('jwt') ||
+    msg.includes('unauthorized') ||
+    msg.includes('missing or malformed bearer token')
+  );
+}
+
+async function handleSessionExpired(message = 'Your session has expired. Please sign in again.') {
+  state.dataAbortController?.abort();
+  state.dataAbortController = null;
+  if (state.client) {
+    try {
+      await state.client.auth.signOut({ scope: 'local' });
+    } catch (e) {
+      console.warn('Could not clear local session:', e);
+    }
+  }
+  state.session = null;
+  state.merchants = [];
+  state.merchant = null;
+  state.overview = null;
+  state.products = [];
+  state.orders = [];
+  state.returns = [];
+  state.team = [];
+  state.categories = [];
+  state.workspaceError = '';
+  state.loading = false;
+  state.authMode = 'signin';
+  state.authError = message;
+  render();
+}
+
+async function getValidSession() {
+  if (!state.client) return null;
+  let session = state.session;
+
+  if (!session?.access_token) {
+    try {
+      const { data, error } = await state.client.auth.getSession();
+      if (!error && data?.session) {
+        session = data.session;
+        state.session = session;
+      }
+    } catch {
+      session = null;
+    }
+  }
+
+  if (!session?.access_token) return null;
+
+  // If token is expired or within 60s of expiring, proactively refresh it
+  const now = Math.floor(Date.now() / 1000);
+  if (session.expires_at && session.expires_at <= now + 60) {
+    try {
+      const { data: refreshData, error: refreshError } = await state.client.auth.refreshSession();
+      if (!refreshError && refreshData?.session?.access_token) {
+        session = refreshData.session;
+        state.session = session;
+      }
+    } catch {
+      // Proceed with current session; let 401 handling catch and recover if expired
+    }
+  }
+
+  return session;
+}
+
 async function api(path, options = {}) {
-  const { method = 'GET', body, idempotencyScope, signal } = options;
-  if (!state.client) throw new ApiError('Authentication client not initialized.', 'AUTH_UNAVAILABLE');
-  
-  const { data: { session } } = await state.client.auth.getSession();
-  if (!session?.access_token) throw new ApiError('Your session has expired. Please sign in again.', 'UNAUTHORIZED');
-  state.session = session;
+  const { method = 'GET', body, idempotencyScope, signal, _retry = false } = options;
+  if (!state.client) throw new ApiError('Authentication client not initialized.', 'AUTH_UNAVAILABLE', 0);
+
+  const session = await getValidSession();
+  if (!session?.access_token) {
+    await handleSessionExpired('Your session has expired. Please sign in again.');
+    throw new ApiError('Your session has expired. Please sign in again.', 'UNAUTHORIZED', 401);
+  }
 
   const headers = { Authorization: `Bearer ${session.access_token}` };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -202,18 +280,33 @@ async function api(path, options = {}) {
     });
   } catch (error) {
     if (error?.name === 'AbortError') throw error;
-    throw new ApiError('Backend service unreachable.', 'NETWORK_ERROR');
+    throw new ApiError('Backend service unreachable.', 'NETWORK_ERROR', 0);
   }
 
   let payload;
   try {
     payload = await response.json();
   } catch {
-    throw new ApiError('The server returned an unreadable response.', 'INVALID_RESPONSE');
+    throw new ApiError('The server returned an unreadable response.', 'INVALID_RESPONSE', response?.status || 0);
   }
 
   if (!response.ok || !payload?.success) {
-    throw new ApiError(payload?.error?.message ?? 'The operation could not be completed.', payload?.error?.code);
+    const errorCode = payload?.error?.code || (response.status === 401 ? 'UNAUTHORIZED' : 'REQUEST_FAILED');
+    const errorMessage = payload?.error?.message ?? 'The operation could not be completed.';
+    const apiErr = new ApiError(errorMessage, errorCode, response.status);
+
+    if ((response.status === 401 || errorCode === 'UNAUTHORIZED' || isAuthError(apiErr)) && !_retry) {
+      try {
+        const { data: refreshData, error: refreshError } = await state.client.auth.refreshSession();
+        if (!refreshError && refreshData?.session?.access_token) {
+          state.session = refreshData.session;
+          return await api(path, { ...options, _retry: true });
+        }
+      } catch {}
+      await handleSessionExpired('Your session has expired. Please sign in again.');
+    }
+
+    throw apiErr;
   }
 
   return payload.data;
@@ -3305,6 +3398,10 @@ async function loadMerchantData() {
     state.orders = [];
     state.returns = [];
     state.categories = [];
+    if (isAuthError(error)) {
+      await handleSessionExpired('Your session has expired. Please sign in again.');
+      return;
+    }
     state.workspaceError = requestErrorMessage(error, 'The merchant workspace is temporarily unavailable. Check your connection and try again.');
   } finally {
     if (requestVersion === state.dataRequestVersion) {
@@ -3315,30 +3412,43 @@ async function loadMerchantData() {
   }
 }
 
+let workspaceLoadingPromise = null;
 async function loadWorkspace() {
-  state.loading = true;
-  state.workspaceError = '';
-  render();
-  try {
-    const data = await api('/v1/vendor/me');
-    state.merchants = data.merchants || [];
-    const savedId = window.localStorage.getItem('sfbf-vendor-merchant-id');
-    state.merchant = state.merchants.find((merchant) => merchant.id === savedId) || state.merchants[0] || null;
-
-    if (!state.merchant) {
-      state.authMode = 'onboarding';
-      state.loading = false;
-      render();
-      return;
-    }
-    await loadMerchantData();
-  } catch (error) {
-    state.loading = false;
-    state.merchants = [];
-    state.merchant = null;
-    state.workspaceError = requestErrorMessage(error, 'The merchant workspace is temporarily unavailable. Check your connection and try again.');
-    render();
+  if (workspaceLoadingPromise) {
+    return workspaceLoadingPromise;
   }
+  workspaceLoadingPromise = (async () => {
+    state.loading = true;
+    state.workspaceError = '';
+    render();
+    try {
+      const data = await api('/v1/vendor/me');
+      state.merchants = data.merchants || [];
+      const savedId = window.localStorage.getItem('sfbf-vendor-merchant-id');
+      state.merchant = state.merchants.find((merchant) => merchant.id === savedId) || state.merchants[0] || null;
+
+      if (!state.merchant) {
+        state.authMode = 'onboarding';
+        state.loading = false;
+        render();
+        return;
+      }
+      await loadMerchantData();
+    } catch (error) {
+      state.loading = false;
+      state.merchants = [];
+      state.merchant = null;
+      if (isAuthError(error)) {
+        await handleSessionExpired('Your session has expired. Please sign in again.');
+        return;
+      }
+      state.workspaceError = requestErrorMessage(error, 'The merchant workspace is temporarily unavailable. Check your connection and try again.');
+      render();
+    }
+  })().finally(() => {
+    workspaceLoadingPromise = null;
+  });
+  return workspaceLoadingPromise;
 }
 
 async function performServerAction(key, operation, successMessage) {
@@ -3657,10 +3767,26 @@ document.addEventListener('click', async (event) => {
   }
 
   if (action === 'sign-out') {
-    if (state.client) await state.client.auth.signOut();
+    state.dataAbortController?.abort();
+    state.dataAbortController = null;
+    if (state.client) {
+      try {
+        await state.client.auth.signOut({ scope: 'local' });
+      } catch (signOutErr) {
+        console.warn('Sign out warning:', signOutErr);
+      }
+    }
     state.session = null;
     state.merchants = [];
     state.merchant = null;
+    state.overview = null;
+    state.products = [];
+    state.orders = [];
+    state.returns = [];
+    state.team = [];
+    state.categories = [];
+    state.workspaceError = '';
+    state.authError = '';
     state.authMode = 'signin';
     render();
     return;
@@ -3668,10 +3794,21 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'refresh-current') {
     try {
+      state.workspaceError = '';
+      if (state.client && state.session) {
+        const { data: refreshData } = await state.client.auth.refreshSession().catch(() => ({ data: null }));
+        if (refreshData?.session) {
+          state.session = refreshData.session;
+        }
+      }
       if (state.merchant) await loadMerchantData();
       else if (state.session) await loadWorkspace();
       showNotice('Live data refreshed.');
     } catch (error) {
+      if (isAuthError(error)) {
+        await handleSessionExpired('Your session has expired. Please sign in again.');
+        return;
+      }
       showNotice(requestErrorMessage(error, 'The workspace could not be refreshed.'), 'error');
     }
     return;
@@ -4570,6 +4707,8 @@ document.addEventListener('submit', async (event) => {
       const { data, error } = await state.client.auth.signInWithPassword({ email, password });
       if (error || !data.session) throw new Error(error?.message || 'Authentication failed.');
       state.session = data.session;
+      state.workspaceError = '';
+      state.authError = '';
       showNotice('Signed in successfully!');
       await loadWorkspace();
     } catch (err) {
@@ -4621,6 +4760,8 @@ document.addEventListener('submit', async (event) => {
       }
 
       state.session = res.data.session;
+      state.workspaceError = '';
+      state.authError = '';
       showNotice('Email verified! Opening your merchant workspace…');
       await loadWorkspace();
     } catch (err) {
@@ -4671,6 +4812,8 @@ document.addEventListener('submit', async (event) => {
 
       if (data.session) {
         state.session = data.session;
+        state.workspaceError = '';
+        state.authError = '';
         showNotice('Merchant account created successfully!');
         await loadWorkspace();
       } else {
@@ -5368,9 +5511,13 @@ async function boot() {
   }
 
   try {
-    state.client = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-    const { data: { session } } = await state.client.auth.getSession();
-    state.session = session;
+    state.client = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
 
     state.client.auth.onAuthStateChange((_event, nextSession) => {
       const prevSession = state.session;
@@ -5392,21 +5539,28 @@ async function boot() {
         if (prevSession) {
           render();
         }
-      } else if (!prevSession && nextSession) {
+      } else if (!prevSession && nextSession && !workspaceLoadingPromise) {
         loadWorkspace();
       }
     });
 
-    if (session) {
+    const validSession = await getValidSession();
+    if (validSession) {
+      state.session = validSession;
       await loadWorkspace();
     } else {
+      state.session = null;
       state.loading = false;
       render();
     }
   } catch (error) {
-    state.workspaceError = requestErrorMessage(error, 'The portal could not initialize its live services.');
-    state.loading = false;
-    render();
+    if (isAuthError(error)) {
+      await handleSessionExpired('Your session has expired. Please sign in again.');
+    } else {
+      state.workspaceError = requestErrorMessage(error, 'The portal could not initialize its live services.');
+      state.loading = false;
+      render();
+    }
   }
 
   // Smooth dismiss of the branded beige splash screen
