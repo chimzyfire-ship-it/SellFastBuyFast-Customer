@@ -59,15 +59,7 @@ export function createApp(): Express {
       },
       credentials: false,
       exposedHeaders: ["X-Request-ID"],
-      allowedHeaders: [
-        "Authorization",
-        "Content-Type",
-        "Idempotency-Key",
-        "If-Match",
-        // Safari adds these for fetch cache: no-store; allow its preflight.
-        "Cache-Control",
-        "Pragma",
-      ],
+      maxAge: 86400,
     }),
   );
   app.use(
