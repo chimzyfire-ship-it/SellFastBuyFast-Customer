@@ -187,7 +187,9 @@ class ApiError extends Error {
 
 function isAuthError(error) {
   if (!error) return false;
-  if (error.code === 'UNAUTHORIZED' || error.status === 401) return true;
+  if (error.code === 'UNAUTHORIZED' || error.status === 401 ||
+      ['refresh_token_not_found', 'refresh_token_already_used', 'session_not_found', 'session_expired'].includes(error.code) ||
+      error.name === 'AuthSessionMissingError') return true;
   const msg = String(error.message || '').toLowerCase();
   return (
     msg.includes('token is invalid or expired') ||
@@ -200,6 +202,9 @@ function isAuthError(error) {
 }
 
 async function handleSessionExpired(message = 'Your session has expired. Please sign in again.') {
+  state.dataRequestVersion++;
+  workspaceGeneration++;
+  workspaceLoadingPromise = null;
   state.dataAbortController?.abort();
   state.dataAbortController = null;
   if (state.client) {
@@ -219,52 +224,51 @@ async function handleSessionExpired(message = 'Your session has expired. Please 
   state.team = [];
   state.categories = [];
   state.workspaceError = '';
+  state.partialDataError = '';
+  state.modal = null;
+  state.profileDraft = null;
+  state.verificationData = null;
+  state.pendingPassword = '';
+  state.busy = null;
   state.loading = false;
   state.authMode = 'signin';
   state.authError = message;
   render();
 }
 
+let sessionRefreshPromise = null;
+async function refreshSessionOnce(rejectedToken) {
+  if (sessionRefreshPromise) return sessionRefreshPromise;
+  sessionRefreshPromise = (async () => {
+    const current = await state.client.auth.getSession();
+    if (current.error) throw current.error;
+    // Another tab or request may already have replaced the rejected token.
+    if (current.data?.session?.access_token !== rejectedToken) {
+      return current.data?.session || null;
+    }
+    const { data, error } = await state.client.auth.refreshSession();
+    if (error) throw error;
+    return data?.session || null;
+  })().finally(() => { sessionRefreshPromise = null; });
+  return sessionRefreshPromise;
+}
+
 async function getValidSession() {
   if (!state.client) return null;
-  let session = state.session;
-
-  if (!session?.access_token) {
-    try {
-      const { data, error } = await state.client.auth.getSession();
-      if (!error && data?.session) {
-        session = data.session;
-        state.session = session;
-      }
-    } catch {
-      session = null;
-    }
-  }
-
-  if (!session?.access_token) return null;
-
-  // If token is expired or within 60s of expiring, proactively refresh it
-  const now = Math.floor(Date.now() / 1000);
-  if (session.expires_at && session.expires_at <= now + 60) {
-    try {
-      const { data: refreshData, error: refreshError } = await state.client.auth.refreshSession();
-      if (!refreshError && refreshData?.session?.access_token) {
-        session = refreshData.session;
-        state.session = session;
-      }
-    } catch {
-      // Proceed with current session; let 401 handling catch and recover if expired
-    }
-  }
-
-  return session;
+  // Supabase owns persistence and expiry; always read its current session.
+  const { data, error } = await state.client.auth.getSession();
+  if (error) throw error;
+  state.session = data?.session || null;
+  return state.session;
 }
 
 async function api(path, options = {}) {
   const { method = 'GET', body, idempotencyScope, signal, _retry = false } = options;
   if (!state.client) throw new ApiError('Authentication client not initialized.', 'AUTH_UNAVAILABLE', 0);
 
+  const generation = workspaceGeneration;
   const session = await getValidSession();
+  if (generation !== workspaceGeneration) throw new DOMException('Session changed', 'AbortError');
   if (!session?.access_token) {
     await handleSessionExpired('Your session has expired. Please sign in again.');
     throw new ApiError('Your session has expired. Please sign in again.', 'UNAUTHORIZED', 401);
@@ -287,6 +291,7 @@ async function api(path, options = {}) {
     throw new ApiError('Backend service unreachable.', 'NETWORK_ERROR', 0);
   }
 
+  if (generation !== workspaceGeneration) throw new DOMException('Session changed', 'AbortError');
   let payload;
   try {
     payload = await response.json();
@@ -299,15 +304,21 @@ async function api(path, options = {}) {
     const errorMessage = payload?.error?.message ?? 'The operation could not be completed.';
     const apiErr = new ApiError(errorMessage, errorCode, response.status);
 
-    if ((response.status === 401 || errorCode === 'UNAUTHORIZED' || isAuthError(apiErr)) && !_retry) {
-      try {
-        const { data: refreshData, error: refreshError } = await state.client.auth.refreshSession();
-        if (!refreshError && refreshData?.session?.access_token) {
-          state.session = refreshData.session;
-          return await api(path, { ...options, _retry: true });
+    if (isAuthError(apiErr)) {
+      if (!_retry) {
+        let refreshed;
+        try {
+          refreshed = await refreshSessionOnce(session.access_token);
+        } catch (error) {
+          // Connectivity failures should remain retryable, not erase a login.
+          if (!isAuthError(error)) throw error;
         }
-      } catch {}
-      await handleSessionExpired('Your session has expired. Please sign in again.');
+        if (refreshed?.access_token) {
+          state.session = refreshed;
+          return api(path, { ...options, _retry: true });
+        }
+      }
+      await handleSessionExpired();
     }
 
     throw apiErr;
@@ -3431,17 +3442,20 @@ async function loadMerchantData() {
   }
 }
 
+let workspaceGeneration = 0;
 let workspaceLoadingPromise = null;
 async function loadWorkspace() {
   if (workspaceLoadingPromise) {
     return workspaceLoadingPromise;
   }
+  const generation = workspaceGeneration;
   workspaceLoadingPromise = (async () => {
     state.loading = true;
     state.workspaceError = '';
     render();
     try {
       const data = await api('/v1/vendor/me');
+      if (generation !== workspaceGeneration || !state.session) return;
       state.merchants = data.merchants || [];
       const savedId = window.localStorage.getItem('sfbf-vendor-merchant-id');
       state.merchant = state.merchants.find((merchant) => merchant.id === savedId) || state.merchants[0] || null;
@@ -3454,6 +3468,7 @@ async function loadWorkspace() {
       }
       await loadMerchantData();
     } catch (error) {
+      if (generation !== workspaceGeneration) return;
       state.loading = false;
       state.merchants = [];
       state.merchant = null;
@@ -3465,7 +3480,7 @@ async function loadWorkspace() {
       render();
     }
   })().finally(() => {
-    workspaceLoadingPromise = null;
+    if (generation === workspaceGeneration) workspaceLoadingPromise = null;
   });
   return workspaceLoadingPromise;
 }
@@ -3810,29 +3825,7 @@ document.addEventListener('click', async (event) => {
   }
 
   if (action === 'sign-out') {
-    state.dataAbortController?.abort();
-    state.dataAbortController = null;
-    if (state.client) {
-      try {
-        await state.client.auth.signOut({ scope: 'local' });
-      } catch (signOutErr) {
-        console.warn('Sign out warning:', signOutErr);
-      }
-    }
-    state.session = null;
-    state.merchants = [];
-    state.merchant = null;
-    state.overview = null;
-    state.products = [];
-    state.orders = [];
-    state.returns = [];
-    state.team = [];
-    state.categories = [];
-    state.workspaceError = '';
-    state.authError = '';
-    state.pendingPassword = '';
-    state.authMode = 'signin';
-    render();
+    await handleSessionExpired('');
     return;
   }
 
@@ -5542,6 +5535,27 @@ document.addEventListener('submit', async (event) => {
   }
 });
 
+// Reconcile persisted auth after a suspended tab, back/forward cache restore,
+// or reconnection. Token refresh events alone must not reload active forms.
+let resumePromise = null;
+function resumeSession() {
+  if (!state.client || !state.session || document.visibilityState === 'hidden') return;
+  if (resumePromise) return resumePromise;
+  resumePromise = (async () => {
+    try {
+      const session = await getValidSession();
+      if (!session) await handleSessionExpired();
+      else if (state.workspaceError || !state.merchant) await loadWorkspace();
+    } catch (error) {
+      if (isAuthError(error)) await handleSessionExpired();
+    }
+  })().finally(() => { resumePromise = null; });
+  return resumePromise;
+}
+window.addEventListener('pageshow', resumeSession);
+window.addEventListener('online', resumeSession);
+document.addEventListener('visibilitychange', resumeSession);
+
 // Boot Sequence
 async function boot() {
   render();
@@ -5565,10 +5579,13 @@ async function boot() {
       },
     });
 
-    state.client.auth.onAuthStateChange((_event, nextSession) => {
+    state.client.auth.onAuthStateChange((event, nextSession) => {
       const prevSession = state.session;
       state.session = nextSession;
-      if (!nextSession) {
+      if (!nextSession && prevSession) {
+        state.dataRequestVersion++;
+        workspaceGeneration++;
+        workspaceLoadingPromise = null;
         state.dataAbortController?.abort();
         state.merchants = [];
         state.merchant = null;
@@ -5578,15 +5595,18 @@ async function boot() {
         state.returns = [];
         state.team = [];
         state.categories = [];
+        state.modal = null;
+        state.profileDraft = null;
+        state.verificationData = null;
+        state.workspaceError = '';
+        state.loading = false;
         state.authMode = 'signin';
-        // Only trigger render if the user was actively logged in and then signed out.
-        // If prevSession was null, the user is already on the unauthenticated auth form,
-        // and calling render() would blow away whatever they're currently typing into the login inputs!
-        if (prevSession) {
-          render();
-        }
-      } else if (!prevSession && nextSession && !workspaceLoadingPromise) {
-        loadWorkspace();
+        render();
+      } else if (nextSession && !prevSession && event !== 'INITIAL_SESSION') {
+        // Never call auth APIs while Supabase holds its auth callback lock.
+        setTimeout(() => {
+          if (state.session && !state.merchant) void loadWorkspace();
+        }, 0);
       }
     });
 
