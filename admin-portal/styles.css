@@ -304,7 +304,21 @@ svg {
   color: #b3c8b8;
 }
 .sidebar .brand {
-  padding: 0 8px 27px;
+  padding: 0 8px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.sidebar-logo {
+  height: 42px;
+  width: auto;
+  max-width: 190px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.3));
+}
+.sidebar .brand small {
+  margin-top: 0;
 }
 .nav {
   overflow-y: auto;
@@ -1051,6 +1065,42 @@ dialog::backdrop {
     0 0 0 160px #e4d3a704;
   pointer-events: none;
 }
+.auth-brand-top {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  z-index: 2;
+}
+.auth-brand-link {
+  display: inline-block;
+  line-height: 0;
+  text-decoration: none;
+}
+.auth-logo-big {
+  height: 64px;
+  width: auto;
+  max-width: 290px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.4));
+  transition: transform 0.2s ease;
+}
+.auth-brand-link:hover .auth-logo-big {
+  transform: scale(1.02);
+}
+.auth-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #e9d4a0;
+  background: rgba(233, 212, 160, 0.12);
+  border: 1px solid rgba(233, 212, 160, 0.25);
+  padding: 5px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
 .auth-copy {
   margin: auto 0;
   padding: 60px 0;
@@ -1100,6 +1150,16 @@ dialog::backdrop {
 .auth-card {
   max-width: 390px;
   width: 100%;
+}
+.auth-card-brand {
+  display: none;
+  margin-bottom: 24px;
+}
+.auth-card-logo {
+  height: 44px;
+  width: auto;
+  max-width: 200px;
+  object-fit: contain;
 }
 .auth-card h2 {
   font-size: 27px;
@@ -1324,6 +1384,10 @@ dialog::backdrop {
   .auth-story {
     padding: 25px;
   }
+  .auth-logo-big {
+    height: 50px;
+    max-width: 230px;
+  }
   .auth-copy {
     padding: 30px 0 0;
   }
@@ -1343,6 +1407,10 @@ dialog::backdrop {
   }
   .auth-card {
     max-width: 450px;
+  }
+  .auth-card-brand {
+    display: block;
+    margin-bottom: 20px;
   }
   .breadcrumb {
     font-size: 10px;
