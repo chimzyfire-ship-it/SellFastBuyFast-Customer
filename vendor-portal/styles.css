@@ -706,6 +706,13 @@ svg.lucide {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.input-icon-right-btn * {
+  pointer-events: none;
 }
 
 .input-icon-right-btn:hover {
