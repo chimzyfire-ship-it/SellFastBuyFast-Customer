@@ -9,6 +9,7 @@ export class ApiError extends Error {
 export class AdminApi {
   constructor(config, auth, fetcher = fetch) {
     this.base = config.apiUrl.replace(/\/$/, "");
+    this.proxy = config.apiProxyPath === "/api/core" ? config.apiProxyPath : null;
     this.auth = auth;
     this.fetcher = fetcher;
   }
@@ -40,7 +41,7 @@ export class AdminApi {
     try {
       let response;
       try {
-        response = await this.fetcher(`${this.base}${path}`, {
+        response = await this.fetcher(this.proxy ? `${this.proxy}?path=${encodeURIComponent(path)}` : `${this.base}${path}`, {
           method,
           headers,
           body: body === undefined ? undefined : JSON.stringify(body),

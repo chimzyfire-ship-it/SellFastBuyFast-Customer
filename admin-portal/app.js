@@ -1261,7 +1261,8 @@ async function loadConfig() {
   }
   if (new URL(apiUrl).origin === new URL(supabaseUrl).origin)
     throw new Error("The Core API URL must point to the marketplace API.");
-  return { apiUrl, supabaseUrl, supabaseAnonKey: key };
+  return { apiUrl, supabaseUrl, supabaseAnonKey: key,
+    apiProxyPath: config.apiProxyPath === "/api/core" ? "/api/core" : undefined };
 }
 let authSubscription;
 async function boot() {

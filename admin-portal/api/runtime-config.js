@@ -4,6 +4,7 @@ module.exports = function handler(req, res) {
   // Explicit public allowlist. Never serialize process.env or server secrets.
   const data = {
     apiUrl: process.env.ADMIN_API_URL || '',
+    apiProxyPath: '/api/core',
     supabaseUrl: process.env.ADMIN_SUPABASE_URL || '',
     supabaseAnonKey: process.env.ADMIN_SUPABASE_ANON_KEY || '',
   };

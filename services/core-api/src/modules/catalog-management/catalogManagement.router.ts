@@ -4,6 +4,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import { db } from '../../db/client.js';
+import { supabaseAdmin } from '../../lib/supabase.js';
 import {
   auditEvents,
   brands,
@@ -24,6 +25,8 @@ import { idempotency } from '../../middleware/idempotency.js';
 import {
   assertProductReadyForSubmission,
   assertProductTransition,
+  MediaUploadUrlSchema,
+  extensionForMediaContentType,
   ProductStatus,
   requiresRemoderation,
 } from './catalogManagement.policy.js';
@@ -55,6 +58,7 @@ const MediaSchema = z.object({
   altText: z.string().trim().max(240).optional(),
   sortOrder: z.number().int().min(0).max(1000).default(0),
 });
+
 const CreateProductSchema = z.object({
   categoryId: z.string().uuid().optional(),
   brandId: z.string().uuid().optional(),
@@ -170,6 +174,41 @@ catalogManagementRouter.get('/merchant/:merchantId/products', async (req: Reques
     sendError(res, err);
   }
 });
+
+catalogManagementRouter.post(
+  '/merchant/:merchantId/media/upload-url',
+  requireRole('merchant_owner', 'merchant_staff', 'staff'),
+  idempotency('catalog-media-upload-url'),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = MediaUploadUrlSchema.safeParse(req.body);
+      if (!parsed.success) throw errors.validation(parsed.error.message);
+      assertMerchantAccess(req, req.params.merchantId);
+      const [merchant] = await db.select({ id: merchants.id, status: merchants.status })
+        .from(merchants).where(eq(merchants.id, req.params.merchantId)).limit(1);
+      if (!merchant) throw errors.notFound('Merchant not found.');
+      const extension = extensionForMediaContentType(parsed.data.contentType);
+      const path = `${merchant.id}/products/${crypto.randomUUID()}.${extension}`;
+      const { data, error } = await supabaseAdmin.storage.from('product-media').createSignedUploadUrl(path);
+      if (error || !data) {
+        throw errors.unavailable('MEDIA_UPLOAD_UNAVAILABLE', 'A product image upload URL could not be created.');
+      }
+      const { data: publicData } = supabaseAdmin.storage.from('product-media').getPublicUrl(path);
+      res.status(201).json({
+        success: true,
+        data: {
+          path,
+          token: data.token,
+          signedUrl: data.signedUrl,
+          publicUrl: publicData.publicUrl,
+          expiresInSeconds: 300,
+        },
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  }
+);
 
 catalogManagementRouter.post(
   '/merchant/:merchantId/products',
