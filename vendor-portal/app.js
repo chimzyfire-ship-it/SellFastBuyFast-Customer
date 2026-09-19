@@ -1404,6 +1404,7 @@ function renderAddProductView() {
   const brand = draft.brand || 'SellFast Signature';
   const condition = draft.condition || 'brand_new';
   const tags = draft.tags || 'mens footwear, formal, genuine leather';
+  const description = draft.description || '';
   const sku = draft.sku || (isEditing ? '' : `SFBF-SKU-${Math.floor(1000 + Math.random() * 9000)}`);
   const priceNaira = draft.priceNaira || '45000';
   const comparePriceNaira = draft.comparePriceNaira || '55000';
