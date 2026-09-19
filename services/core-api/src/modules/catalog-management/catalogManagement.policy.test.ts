@@ -17,7 +17,7 @@ test('allows merchant submission and moderator decisions', () => {
 test('requires complete submission data and only remoderates listing-affecting edits', () => {
   assert.doesNotThrow(() => assertProductReadyForSubmission({
     description: 'Handcrafted leather Oxford shoes with cushioned insoles.',
-    category: { isActive: true, parentId: 'fashion-root' },
+    category: { isActive: true, parentId: null },
     variants: [{ sku: 'SFBF-OXFORD-42', priceMinor: 4_500_000 }],
     media: [{ mediaType: 'image' }],
   }));
@@ -46,3 +46,30 @@ test('rejects publishing without moderation and editing a pending product', () =
     (error) => error instanceof AppError && error.code === 'INVALID_PRODUCT_TRANSITION'
   );
 });
+
+test('enforces safe media types and 5MB size limits for product uploads', async () => {
+  const { MediaUploadUrlSchema, extensionForMediaContentType, MAX_MEDIA_SIZE_BYTES } = await import('./catalogManagement.policy.js');
+
+  // Valid inputs
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'image/jpeg', sizeBytes: 1024 }).success, true);
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'image/png', sizeBytes: 5 * 1024 * 1024 }).success, true);
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'image/webp', sizeBytes: 2_000_000, filename: 'shoe.webp' }).success, true);
+
+  // Invalid MIME types (SVG, GIF, PDF, HTML, executable)
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'image/svg+xml', sizeBytes: 1024 }).success, false);
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'image/gif', sizeBytes: 1024 }).success, false);
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'application/pdf', sizeBytes: 1024 }).success, false);
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'text/html', sizeBytes: 1024 }).success, false);
+
+  // Invalid sizes (exceeding 5MB or non-positive)
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'image/jpeg', sizeBytes: MAX_MEDIA_SIZE_BYTES + 1 }).success, false);
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'image/jpeg', sizeBytes: 0 }).success, false);
+  assert.equal(MediaUploadUrlSchema.safeParse({ contentType: 'image/jpeg', sizeBytes: -100 }).success, false);
+
+  // File extension helper
+  assert.equal(extensionForMediaContentType('image/jpeg'), 'jpg');
+  assert.equal(extensionForMediaContentType('image/png'), 'png');
+  assert.equal(extensionForMediaContentType('image/webp'), 'webp');
+  assert.equal(extensionForMediaContentType('other'), 'jpg');
+});
+

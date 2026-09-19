@@ -1420,8 +1420,8 @@ function renderAddProductView() {
   const bullet1 = draft.bullet1 || '100% Genuine Handcrafted Italian Calfskin Leather';
   const bullet2 = draft.bullet2 || 'Cushioned Memory Foam Insole with Anti-Skid Rubber Sole';
   const bullet3 = draft.bullet3 || 'Reinforced Goodyear Welted Construction for Longevity';
-  const description = draft.description || 'Expertly handcrafted from supple, premium full-grain leather, these Oxford shoes combine timeless elegance with day-long comfort. Designed for formal engagements, executive wear, and high-profile events.';
-  const imageUrl = draft.imageUrl || 'assets/product-sneakers-arch.jpg';
+  const defaultProductCover = 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80';
+  const imageUrl = draft.imageUrl || defaultProductCover;
   const weightKg = draft.weightKg || '0.85';
   const dimensionsCm = draft.dimensionsCm || '33 × 21 × 12';
   const returnPolicy = draft.returnPolicy || '7_day_escrow';
@@ -1430,7 +1430,7 @@ function renderAddProductView() {
   const previewMode = state.previewMode || 'card'; // 'card' | 'detail'
 
   // Live preview computations
-  const previewImg = safeMediaUrl(imageUrl) || 'assets/product-sneakers-arch.jpg';
+  const previewImg = safeMediaUrl(imageUrl) || defaultProductCover;
   const previewTitle = title || 'Italian Leather Men\'s Oxford Shoes';
   const previewBrand = brand || 'SellFast Signature';
   const selectedCat = state.categories.find((c) => c.id === categoryId)?.name || 'Footwear & Fashion';
@@ -1549,26 +1549,67 @@ function renderAddProductView() {
             <span class="studio-section-badge">1:1 Square Standard</span>
           </div>
           <div class="studio-section-body">
-            <div class="form-group">
-              <label class="form-label" for="prod-image">Primary Cover Photo URL</label>
-              <input class="input" id="prod-image" name="imageUrl" type="url" placeholder="https://your-image-host.example/photo.jpg" value="${escapeAttribute(imageUrl)}" required />
-              <div class="image-preset-pills">
-                <span style="font-size:11.5px;color:var(--ink-muted);margin-right:2px;">Quick Presets:</span>
-                <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Italian Leather Men's Oxford Shoes" data-brand="SellFast Signature" data-url="assets/product-sneakers-arch.jpg" data-price="45000" data-compare="55000">Men's Shoes</button>
-                <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Luxury Leather Structured Handbag" data-brand="Milano Leather" data-url="assets/product-handbag-arch.jpg" data-price="68000" data-compare="85000">Leather Handbag</button>
-                <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Stainless Steel Chrono Smartwatch" data-brand="Apex Tech" data-url="assets/product-smartwatch-arch.jpg" data-price="32000" data-compare="40000">Smartwatch</button>
-                <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Artisan French Eau De Parfum 100ml" data-brand="Maison Paris" data-url="assets/product-perfume-arch.jpg" data-price="28000" data-compare="35000">Perfume</button>
-              </div>
-            </div>
+            <div class="product-upload-container">
+              <!-- Native hidden file input for photo gallery / camera / file selector -->
+              <input type="file" id="prod-image-file" accept="image/jpeg,image/png,image/webp" style="display:none;" />
 
-            <div style="display:flex;gap:14px;align-items:center;background:var(--page-subtle);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">
-              <div style="width:64px;height:64px;border-radius:var(--radius-xs);border:1px solid var(--border-medium);overflow:hidden;flex-shrink:0;background:#ffffff;">
-                <img src="${escapeAttribute(previewImg)}" alt="Cover thumbnail" id="cover-thumb-preview" style="width:100%;height:100%;object-fit:cover;" onerror="this.src='assets/product-sneakers-arch.jpg'" />
+              <!-- Drag and drop / click upload area -->
+              <div class="product-upload-dropzone" id="prod-image-dropzone" data-action="trigger-product-image-upload">
+                <div class="product-upload-icon-circle">
+                  ${icon('upload')}
+                </div>
+                <div class="product-upload-title">Select or Take Product Photo</div>
+                <div class="product-upload-subtitle">
+                  Upload directly from your phone photo gallery, camera, or computer files. Images are secured in platform storage and displayed across shopper apps once approved.
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" data-action="trigger-product-image-upload">
+                  ${icon('upload')} Choose Image from Device or Gallery
+                </button>
+                <div class="product-upload-badges">
+                  <span class="product-upload-badge highlight">Allowed Formats: JPG, PNG, WebP</span>
+                  <span class="product-upload-badge">Max: 5 MB</span>
+                  <span class="product-upload-badge">1:1 Square</span>
+                </div>
               </div>
-              <div style="font-size:12px;color:var(--ink-muted);line-height:1.45;">
-                <strong style="color:var(--ink-primary);display:block;margin-bottom:2px;">Marketplace Photography Standard</strong>
-                Use high-contrast product photos on clear neutral backgrounds. Listings with high-resolution imagery achieve 38% higher conversion rates and 50% fewer return disputes.
+
+              <!-- Upload Status / Progress -->
+              <div class="product-upload-status" id="prod-image-upload-status"></div>
+
+              <!-- Image Active Preview & Specs -->
+              <div style="display:flex;gap:14px;align-items:center;background:var(--page-subtle);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">
+                <div style="width:72px;height:72px;border-radius:var(--radius-xs);border:1px solid var(--border-medium);overflow:hidden;flex-shrink:0;background:#ffffff;box-shadow:var(--shadow-sm);">
+                  <img src="${escapeAttribute(previewImg)}" alt="Cover thumbnail" id="cover-thumb-preview" style="width:100%;height:100%;object-fit:cover;" onerror="this.src='https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80'" />
+                </div>
+                <div style="font-size:12px;color:var(--ink-muted);line-height:1.45;flex:1;">
+                  <strong style="color:var(--ink-primary);display:block;margin-bottom:2px;">Marketplace Photography Standard</strong>
+                  Verified high-contrast imagery on clean backgrounds converts 38% higher and prevents buyer disputes.
+                  <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+                    <button type="button" class="btn btn-quiet btn-xs" data-action="trigger-product-image-upload">
+                      ${icon('camera')} Change Photo
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              <!-- Advanced: Manual URL / Presets Dropdown -->
+              <details style="margin-top:2px;font-size:12px;" ${imageUrl && !imageUrl.includes('supabase.co') ? 'open' : ''}>
+                <summary style="cursor:pointer;color:var(--forest-800);font-weight:600;display:inline-flex;align-items:center;gap:4px;user-select:none;">
+                  ${icon('link')} Advanced: Direct Image URL & Sample Presets
+                </summary>
+                <div style="margin-top:10px;padding:12px;background:var(--page-subtle);border-radius:var(--radius-xs);border:1px solid var(--border-light);">
+                  <div class="form-group" style="margin-bottom:8px;">
+                    <label class="form-label" for="prod-image">Verified Image CDN URL</label>
+                    <input class="input" id="prod-image" name="imageUrl" type="url" placeholder="https://your-image-host.example/photo.jpg" value="${escapeAttribute(imageUrl)}" required />
+                  </div>
+                  <div class="image-preset-pills">
+                    <span style="font-size:11.5px;color:var(--ink-muted);margin-right:2px;">Sample Presets:</span>
+                    <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Italian Leather Men's Oxford Shoes" data-brand="SellFast Signature" data-url="https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80" data-price="45000" data-compare="55000">Men's Shoes</button>
+                    <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Luxury Leather Structured Handbag" data-brand="Milano Leather" data-url="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=800&q=80" data-price="68000" data-compare="85000">Leather Handbag</button>
+                    <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Stainless Steel Chrono Smartwatch" data-brand="Apex Tech" data-url="https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=800&q=80" data-price="32000" data-compare="40000">Smartwatch</button>
+                    <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Artisan French Eau De Parfum 100ml" data-brand="Maison Paris" data-url="https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?auto=format&fit=crop&w=800&q=80" data-price="28000" data-compare="35000">Perfume</button>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
         </div>
@@ -3325,6 +3366,30 @@ function renderModal() {
 function requestErrorMessage(error, fallback = 'The request could not be completed.') {
   if (!error) return fallback;
   if (error.code === 'VALIDATION_ERROR') {
+    if (error.message && typeof error.message === 'string' && error.message.trim().startsWith('[') && error.message.includes('"path"')) {
+      try {
+        const issues = JSON.parse(error.message);
+        if (Array.isArray(issues) && issues.length > 0) {
+          const first = issues[0];
+          const pathStr = Array.isArray(first.path) ? first.path.join('.') : '';
+          if (pathStr.includes('media')) {
+            return 'Invalid product image URL. Please upload a photo from your device or gallery, or supply a valid image URL.';
+          }
+          if (pathStr.includes('title')) {
+            return 'Product title must be between 3 and 180 characters.';
+          }
+          if (pathStr.includes('description')) {
+            return 'Product description must be at least 10 characters.';
+          }
+          if (pathStr.includes('price')) {
+            return 'Please enter a valid retail price for the product.';
+          }
+          if (first.message) {
+            return `Validation error: ${first.message} (${pathStr || 'field'})`;
+          }
+        }
+      } catch {}
+    }
     return error.message || 'Please correct the highlighted fields and try again.';
   }
   if (error.code === 'SLUG_ALREADY_EXISTS') {
@@ -3968,6 +4033,12 @@ document.addEventListener('click', async (event) => {
     if (num.startsWith('0')) num = '234' + num.slice(1);
     if (!num.startsWith('234')) num = '234' + num;
     window.open(`https://wa.me/${num}?text=${encodeURIComponent('Hello, I have an inquiry regarding my order on SellFastBuyFast.')}`, '_blank');
+    return;
+  }
+
+  if (action === 'trigger-product-image-upload') {
+    const fileInput = document.getElementById('prod-image-file');
+    if (fileInput) fileInput.click();
     return;
   }
 
@@ -4675,6 +4746,14 @@ document.addEventListener('change', (event) => {
     return;
   }
 
+  if (event.target.id === 'prod-image-file') {
+    const file = event.target.files?.[0];
+    if (file) {
+      uploadProductMediaImage(file);
+    }
+    return;
+  }
+
   if (event.target.id === 'catalogue-category-filter') {
     state.catalogueCategory = event.target.value;
     render();
@@ -4685,6 +4764,149 @@ document.addEventListener('change', (event) => {
     const catText = catSelect.options[catSelect.selectedIndex]?.text;
     const catEl = document.getElementById('preview-cat-text');
     if (catEl && catText && catText !== 'Select Category') catEl.textContent = catText;
+  }
+});
+
+async function uploadProductMediaImage(file) {
+  if (!file) return;
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  const maxBytes = 5 * 1024 * 1024;
+  if (!allowedTypes.includes(file.type)) {
+    showNotice('Invalid image format. Only JPEG, PNG, and WebP images are accepted for marketplace listings.', 'error');
+    const statusEl = document.getElementById('prod-image-upload-status');
+    if (statusEl) {
+      statusEl.style.display = 'flex';
+      statusEl.innerHTML = `${icon('alert-circle')} <span style="color:var(--rose-600);font-weight:600;">Invalid image format. Only JPEG, PNG, and WebP files are supported.</span>`;
+    }
+    return;
+  }
+  if (file.size > maxBytes) {
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    showNotice(`Image exceeds 5MB limit (${sizeMb} MB). Please select an optimized image.`, 'error');
+    const statusEl = document.getElementById('prod-image-upload-status');
+    if (statusEl) {
+      statusEl.style.display = 'flex';
+      statusEl.innerHTML = `${icon('alert-circle')} <span style="color:var(--rose-600);font-weight:600;">Image exceeds 5MB (${sizeMb} MB). Please choose a smaller image.</span>`;
+    }
+    return;
+  }
+
+  const uploadBtn = document.querySelector('[data-action="trigger-product-image-upload"]');
+  const uploadStatus = document.getElementById('prod-image-upload-status');
+  const imgInput = document.getElementById('prod-image');
+  const thumbPreview = document.getElementById('cover-thumb-preview');
+  const cardMockImg = document.getElementById('preview-card-img') || document.getElementById('mockup-cover-img');
+  const detailMockImg = document.getElementById('detail-hero-img') || document.getElementById('mockup-detail-img');
+
+  try {
+    state.isUploadingProductImage = true;
+    if (uploadBtn) {
+      uploadBtn.disabled = true;
+      uploadBtn.innerHTML = `Uploading image...`;
+    }
+    if (uploadStatus) {
+      uploadStatus.style.display = 'flex';
+      uploadStatus.innerHTML = `${icon('clock')} <span style="color:var(--forest-800);font-weight:600;">Uploading ${escapeHtml(file.name)} to secure storage...</span>`;
+    }
+
+    // Step 1: Request signed upload URL from Core API
+    const uploadRes = await api(`/v1/catalog-management/merchant/${state.merchant.id}/media/upload-url`, {
+      method: 'POST',
+      idempotencyScope: 'catalog-media-upload',
+      body: {
+        contentType: file.type,
+        sizeBytes: file.size,
+        filename: file.name,
+      },
+    });
+
+    if (!uploadRes?.signedUrl || !uploadRes?.publicUrl) {
+      throw new Error('Failed to obtain a secure product media upload URL.');
+    }
+
+    // Step 2: Upload file binary directly to signed URL
+    let uploaded = false;
+    if (state.client?.storage && uploadRes.path && uploadRes.token) {
+      const { error: uploadErr } = await state.client.storage
+        .from('product-media')
+        .uploadToSignedUrl(uploadRes.path, uploadRes.token, file, {
+          contentType: file.type,
+        });
+      if (!uploadErr) {
+        uploaded = true;
+      }
+    }
+
+    if (!uploaded) {
+      const putRes = await fetch(uploadRes.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!putRes.ok) {
+        throw new Error('Failed to upload image binary to storage provider.');
+      }
+    }
+
+    // Step 3: Populate imageUrl input and preview thumbnails
+    const publicUrl = uploadRes.publicUrl;
+    if (imgInput) {
+      imgInput.value = publicUrl;
+      imgInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (thumbPreview) thumbPreview.src = publicUrl;
+    if (cardMockImg) cardMockImg.src = publicUrl;
+    if (detailMockImg) detailMockImg.src = publicUrl;
+
+    if (state.productDraft) {
+      state.productDraft.imageUrl = publicUrl;
+    }
+
+    if (uploadStatus) {
+      uploadStatus.style.display = 'flex';
+      uploadStatus.innerHTML = `${icon('check-circle')} <span style="color:var(--forest-900);font-weight:600;">${escapeHtml(file.name)} uploaded and ready for listing!</span>`;
+    }
+    showNotice('Product image uploaded successfully!', 'success');
+  } catch (err) {
+    console.error('Image upload failed:', err);
+    if (uploadStatus) {
+      uploadStatus.style.display = 'flex';
+      uploadStatus.innerHTML = `${icon('alert-circle')} <span style="color:var(--rose-600);font-weight:600;">${escapeHtml(err.message || 'Image upload failed.')}</span>`;
+    }
+    showNotice(err.message || 'Image upload failed. Please verify your connection and try again.', 'error');
+  } finally {
+    state.isUploadingProductImage = false;
+    if (uploadBtn) {
+      uploadBtn.disabled = false;
+      uploadBtn.innerHTML = `${icon('upload')} Choose Image from Device or Gallery`;
+    }
+  }
+}
+
+document.addEventListener('dragover', (event) => {
+  const dropzone = event.target.closest('#prod-image-dropzone');
+  if (dropzone) {
+    event.preventDefault();
+    dropzone.classList.add('drag-over');
+  }
+});
+
+document.addEventListener('dragleave', (event) => {
+  const dropzone = event.target.closest('#prod-image-dropzone');
+  if (dropzone) {
+    dropzone.classList.remove('drag-over');
+  }
+});
+
+document.addEventListener('drop', (event) => {
+  const dropzone = event.target.closest('#prod-image-dropzone');
+  if (dropzone) {
+    event.preventDefault();
+    dropzone.classList.remove('drag-over');
+    const file = event.dataTransfer?.files?.[0];
+    if (file) {
+      uploadProductMediaImage(file);
+    }
   }
 });
 
@@ -5087,7 +5309,11 @@ document.addEventListener('submit', async (event) => {
         !variant.sku || !Number.isSafeInteger(variant.priceMinor) || variant.priceMinor <= 0 ||
         !Number.isSafeInteger(variant.availableQuantity) || variant.availableQuantity < 0
       )) {
-      state.formError = 'Please fill in all required product specification fields with valid data.';
+      if (!isMediaUrlValid(imageUrl)) {
+        state.formError = 'Please upload a product photo from your device or gallery, or provide a valid image URL.';
+      } else {
+        state.formError = 'Please fill in all required product specification fields with valid data.';
+      }
       render();
       return;
     }
