@@ -167,6 +167,62 @@ test("Non-payment purchase lifecycle through real SQL and HTTP", async (t) => {
       });
       return { status: response.status, body: (await response.json()) as any };
     }
+    await t.test('Vendor photo draft enters admin review and appears to shoppers only after approval', async () => {
+      const [bucket] = await query(sql`select * from storage.buckets where id='product-media'`);
+      assert.equal(bucket.public, true);
+      assert.equal(Number(bucket.file_size_limit), 5 * 1024 * 1024);
+      const category = id();
+      await db.execute(sql`insert into categories(id,name,slug,is_active) values(${category},'Photo test','photo-test',true)`);
+      const originalFrom = supabaseAdmin.storage.from;
+      let signedPath = '';
+      supabaseAdmin.storage.from = ((name: string) => {
+        assert.equal(name, 'product-media');
+        return {
+          createSignedUploadUrl: async (path: string) => {
+            signedPath = path;
+            return { data: { token: 'test-token', signedUrl: 'https://storage.example.invalid/upload' }, error: null };
+          },
+          getPublicUrl: (path: string) => ({ data: { publicUrl: 'https://storage.example.invalid/' + path } }),
+        };
+      }) as any;
+      let imageUrl = '';
+      try {
+        const uploadRoute = `/v1/catalog-management/merchant/${merchant}/media/upload-url`;
+        const input = {contentType: 'image/png', sizeBytes: 1024, filename: 'photo.png'};
+        assert.equal((await request(uploadRoute, outsider, 'POST', input)).status, 403);
+        assert.equal((await request(uploadRoute, merchantUser, 'POST', {...input, sizeBytes: 6 * 1024 * 1024})).status, 400);
+        const upload = await request(uploadRoute, merchantUser, 'POST', input);
+        assert.equal(upload.status, 201, JSON.stringify(upload.body));
+        assert.ok(signedPath.startsWith(merchant + '/products/'));
+        imageUrl = upload.body.data.publicUrl;
+      } finally {
+        supabaseAdmin.storage.from = originalFrom;
+      }
+      const created = await request(`/v1/catalog-management/merchant/${merchant}/products`, merchantUser, 'POST', {
+        title: 'Vendor photo listing', description: 'A complete product description for moderation.', categoryId: category,
+        variants: [{sku: 'PHOTO-TEST', priceMinor: 20000, availableQuantity: 4}],
+        media: [{mediaUrl: imageUrl, mediaType: 'image'}],
+      });
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      const productId = created.body.data.id;
+      const root = `/v1/catalog-management/products/${productId}`;
+      const visible = async () => (await request('/v1/catalog/products', null)).body.data.find((p: any) => p.id === productId);
+      assert.equal(await visible(), undefined);
+      assert.equal((await request(root + '/submit', merchantUser, 'POST', {})).status, 200);
+      assert.equal(await visible(), undefined);
+      const queue = await request('/v1/catalog-management/moderation/queue', moderator);
+      assert.equal(queue.body.data.find((p: any) => p.id === productId).media[0].mediaUrl, imageUrl);
+      assert.equal((await request(root + '/moderate', merchantUser, 'POST', {decision: 'publish', note: 'Photo reviewed and approved.'})).status, 403);
+      const detail = await request(`/v1/admin/catalogue/${productId}`, moderator);
+      assert.equal(detail.status, 200, JSON.stringify(detail.body));
+      const approved = await request(root + '/moderate', moderator, 'POST', {decision: 'publish', note: 'Photo reviewed and approved.'}, id(), {'If-Match': String(detail.body.data.record.version)});
+      assert.equal(approved.status, 200, JSON.stringify(approved.body));
+      assert.equal((await visible()).media[0].mediaUrl, imageUrl);
+      const mediaId = created.body.data.media[0].id;
+      const changed = await request(`/v1/catalog-management/media/${mediaId}`, merchantUser, 'PATCH', {mediaUrl: imageUrl + '?replacement=1'});
+      assert.equal(changed.status, 200, JSON.stringify(changed.body));
+      assert.equal(await visible(), undefined, 'Replacing approved media requires another review');
+    });
     await t.test('Safari no-store preflight permits its browser-added cache headers', async () => {
       const response = await fetch(base + '/v1/admin/me', {
         method: 'OPTIONS',

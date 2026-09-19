@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { AppState } from 'react-native';
 import { PRODUCTS, CATEGORIES } from '../data/mockData';
 import { supabase } from '../lib/supabase';
 import { fetchLiveCategories, fetchLiveProducts } from '../services/catalogService';
@@ -129,6 +130,13 @@ export const AppProvider = ({ children }) => {
       setIsLoadingCatalogue(false);
     }
   }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void loadCatalogueData();
+    });
+    return () => subscription.remove();
+  }, [loadCatalogueData]);
 
   const refreshOrders = useCallback(async () => {
     const data = await listOrders();
