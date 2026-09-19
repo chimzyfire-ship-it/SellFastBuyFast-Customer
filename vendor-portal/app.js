@@ -1546,7 +1546,12 @@ function renderAddProductView() {
         <div class="studio-section">
           <div class="studio-section-header">
             <div class="studio-section-title">${icon('image')} Visual Media & Photography</div>
-            <span class="studio-section-badge">1:1 Square Standard</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button type="button" class="btn btn-quiet btn-xs" data-action="open-photo-standards" style="font-weight:600;color:var(--forest-800);display:inline-flex;align-items:center;gap:5px;">
+                ${icon('info')} View Full Image Standards
+              </button>
+              <span class="studio-section-badge">1:1 Square Standard</span>
+            </div>
           </div>
           <div class="studio-section-body">
             <div class="product-upload-container">
@@ -1560,7 +1565,7 @@ function renderAddProductView() {
                 </div>
                 <div class="product-upload-title">Select or Take Product Photo</div>
                 <div class="product-upload-subtitle">
-                  Upload directly from your phone photo gallery, camera, or computer files. Images are secured in platform storage and displayed across shopper apps once approved.
+                  Upload directly from your phone photo gallery, camera, or computer files. Images must comply with <a href="javascript:void(0)" data-action="open-photo-standards" style="color:var(--forest-700);text-decoration:underline;font-weight:600;">Marketplace Photography Standards</a> to be approved by Operations Admins.
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" data-action="trigger-product-image-upload">
                   ${icon('upload')} Choose Image from Device or Gallery
@@ -1576,20 +1581,33 @@ function renderAddProductView() {
               <div class="product-upload-status" id="prod-image-upload-status"></div>
 
               <!-- Image Active Preview & Specs -->
-              <div style="display:flex;gap:14px;align-items:center;background:var(--page-subtle);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">
-                <div style="width:72px;height:72px;border-radius:var(--radius-xs);border:1px solid var(--border-medium);overflow:hidden;flex-shrink:0;background:#ffffff;box-shadow:var(--shadow-sm);">
-                  <img src="${escapeAttribute(previewImg)}" alt="Cover thumbnail" id="cover-thumb-preview" style="width:100%;height:100%;object-fit:cover;" onerror="this.src='https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80'" />
+              <div class="photo-standards-banner">
+                <div class="photo-standards-thumb-wrap">
+                  <img src="${escapeAttribute(previewImg)}" alt="Cover thumbnail" id="cover-thumb-preview" class="photo-standards-thumb" onerror="this.src='https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80'" />
                 </div>
-                <div style="font-size:12px;color:var(--ink-muted);line-height:1.45;flex:1;">
-                  <strong style="color:var(--ink-primary);display:block;margin-bottom:2px;">Marketplace Photography Standard</strong>
-                  Verified high-contrast imagery on clean backgrounds converts 38% higher and prevents buyer disputes.
-                  <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+                <div class="photo-standards-info">
+                  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+                    <strong style="color:var(--ink-primary);display:flex;align-items:center;gap:6px;font-size:13px;">
+                      ${icon('shield-check')} Marketplace Photography Standard
+                    </strong>
+                    <button type="button" class="btn btn-secondary btn-xs" data-action="open-photo-standards" style="display:inline-flex;align-items:center;gap:4px;font-weight:600;">
+                      ${icon('maximize')} Open Fullscreen Guide
+                    </button>
+                  </div>
+                  <p style="margin:4px 0 8px;font-size:12px;color:var(--ink-muted);line-height:1.45;">
+                    Verified high-contrast imagery on clean neutral backgrounds achieves <strong>38% higher conversion</strong> and passes Operations Admin review on first submission.
+                  </p>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                     <button type="button" class="btn btn-quiet btn-xs" data-action="trigger-product-image-upload">
                       ${icon('camera')} Change Photo
+                    </button>
+                    <button type="button" class="btn btn-quiet btn-xs" data-action="open-photo-standards">
+                      ${icon('book-open')} Read Guidelines & Examples
                     </button>
                   </div>
                 </div>
               </div>
+
 
               <!-- Advanced: Manual URL / Presets Dropdown -->
               <details style="margin-top:2px;font-size:12px;" ${imageUrl && !imageUrl.includes('supabase.co') ? 'open' : ''}>
@@ -3356,6 +3374,154 @@ function renderModal() {
       </div>`;
   }
 
+  if (state.modal.type === 'photo-standards') {
+    return `
+      <div class="modal-backdrop" data-action="close-modal">
+        <div class="modal-dialog-standards" onclick="event.stopPropagation()">
+          <div class="modal-header" style="background:linear-gradient(135deg, #0b2e1e 0%, #061910 100%);color:#ffffff;border-bottom:1px solid rgba(255,255,255,0.1);padding:18px 24px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;color:#4ade80;">
+                ${icon('camera')}
+              </div>
+              <div>
+                <h3 class="modal-title" style="color:#ffffff;font-size:18px;font-weight:700;margin:0;">Product Photography & Imagery Standards</h3>
+                <p style="margin:2px 0 0;font-size:12px;color:rgba(255,255,255,0.75);">Official guidelines for vendor submissions & Operations Admin approval</p>
+              </div>
+            </div>
+            <button class="modal-close-btn" type="button" data-action="close-modal" style="color:#ffffff;background:rgba(255,255,255,0.1);border-radius:8px;padding:6px;">${icon('x')}</button>
+          </div>
+
+          <div class="standards-scroll-content">
+            <!-- Key Metric Highlights -->
+            <div class="standards-stats-row">
+              <div class="standards-stat-card">
+                <span class="standards-stat-icon">${icon('check-circle')}</span>
+                <div>
+                  <strong>Fast-Track Approval</strong>
+                  <p>Listings meeting these guidelines are approved by Operations Admins on first review.</p>
+                </div>
+              </div>
+              <div class="standards-stat-card">
+                <span class="standards-stat-icon">${icon('trending-up')}</span>
+                <div>
+                  <strong>+38% Conversion</strong>
+                  <p>High-resolution, clean imagery dramatically improves buyer purchase rates on mobile.</p>
+                </div>
+              </div>
+              <div class="standards-stat-card">
+                <span class="standards-stat-icon">${icon('shield-check')}</span>
+                <div>
+                  <strong>-50% Return Disputes</strong>
+                  <p>Accurate photos and authentic representation prevent buyer returns and chargebacks.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Technical Specifications Grid -->
+            <div class="standards-section">
+              <h4 class="standards-heading">${icon('sliders')} 1. Technical Specifications</h4>
+              <div class="standards-specs-grid">
+                <div class="standards-spec-item">
+                  <div class="spec-label">Aspect Ratio</div>
+                  <div class="spec-value">1:1 Square</div>
+                  <div class="spec-desc">Images must be square (e.g. 1000×1000px min, 1200×1200px recommended). Prevents cropping on mobile feed cards.</div>
+                </div>
+                <div class="standards-spec-item">
+                  <div class="spec-label">Accepted Formats</div>
+                  <div class="spec-value">JPG, PNG, WebP</div>
+                  <div class="spec-desc">Safest, high-fidelity web formats. Animated GIFs, PDFs, and SVGs are strictly blocked for security.</div>
+                </div>
+                <div class="standards-spec-item">
+                  <div class="spec-label">Maximum File Size</div>
+                  <div class="spec-value">5.0 MB</div>
+                  <div class="spec-desc">Optimized for rapid mobile network loading while preserving crisp detail and sharp zoom capability.</div>
+                </div>
+                <div class="standards-spec-item">
+                  <div class="spec-label">Color Profile</div>
+                  <div class="spec-value">sRGB / Natural</div>
+                  <div class="spec-desc">True-to-life colors without artificial beauty filters, color shifting, or heavy HDR saturation.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Visual DOs vs DONTs -->
+            <div class="standards-section">
+              <h4 class="standards-heading">${icon('eye')} 2. Visual Comparison: Approved vs. Rejected</h4>
+              <div class="standards-compare-grid">
+                <!-- DO Card -->
+                <div class="standards-compare-card approved">
+                  <div class="compare-card-badge approved">${icon('check')} APPROVED STANDARD</div>
+                  <div class="compare-img-wrap">
+                    <img src="https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80" alt="Approved example" class="compare-img" />
+                  </div>
+                  <ul class="compare-checklist approved">
+                    <li>${icon('check')} Clean, neutral background (pure white, soft gray, or tidy studio)</li>
+                    <li>${icon('check')} Product occupies 80%–85% of the frame, perfectly centered</li>
+                    <li>${icon('check')} Sharp focus showing material textures, stitching, and genuine details</li>
+                    <li>${icon('check')} Even, bright lighting with natural shadows</li>
+                    <li>${icon('check')} Zero external watermarks, phone numbers, or promotional overlays</li>
+                  </ul>
+                </div>
+
+                <!-- DONT Card -->
+                <div class="standards-compare-card rejected">
+                  <div class="compare-card-badge rejected">${icon('x')} REJECTED (Corrections Required)</div>
+                  <div class="compare-img-wrap rejected">
+                    <img src="https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=800&q=80" alt="Rejected example" class="compare-img" style="filter:blur(1px) contrast(0.85);" />
+                    <div class="watermark-mock">SAMPLE WATERMARK · 08012345678</div>
+                  </div>
+                  <ul class="compare-checklist rejected">
+                    <li>${icon('x')} Cluttered or messy personal backgrounds (bedding, messy floors)</li>
+                    <li>${icon('x')} Phone numbers, WhatsApp handles, or price overlays on image</li>
+                    <li>${icon('x')} Blurry, pixelated, or low-resolution smartphone screenshots</li>
+                    <li>${icon('x')} Extreme zoom or off-center cropping cutting off product edges</li>
+                    <li>${icon('x')} Misleading generic stock photos that differ from actual inventory</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recommended Angles -->
+            <div class="standards-section">
+              <h4 class="standards-heading">${icon('layers')} 3. Multi-Angle Photo Sequence (Recommended)</h4>
+              <div class="standards-angles-grid">
+                <div class="angle-card">
+                  <div class="angle-num">1</div>
+                  <strong>Hero / Front</strong>
+                  <p>Complete product facing camera on neutral backdrop. First impression for shoppers.</p>
+                </div>
+                <div class="angle-card">
+                  <div class="angle-num">2</div>
+                  <strong>Side / 45° Profile</strong>
+                  <p>Displays depth, silhouette, thickness, and ergonomics.</p>
+                </div>
+                <div class="angle-card">
+                  <div class="angle-num">3</div>
+                  <strong>Detail & Texture</strong>
+                  <p>Close-up of authentic branding, seams, hardware, ports, or ingredient labels.</p>
+                </div>
+                <div class="angle-card">
+                  <div class="angle-num">4</div>
+                  <strong>Packaging / In-Box</strong>
+                  <p>Shows original box, accessories, tags, and documentation included.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer" style="padding:16px 24px;background:var(--page-subtle);border-top:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:12px;color:var(--ink-muted);display:flex;align-items:center;gap:6px;">
+              ${icon('shield-check')} Standards verified and approved by SellFastBuyFast Operations
+            </span>
+            <button class="btn btn-primary" type="button" data-action="close-modal">
+              Got It, Return to Product Studio
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   return '';
 }
 
@@ -3881,6 +4047,13 @@ document.addEventListener('click', async (event) => {
     render();
     return;
   }
+
+  if (action === 'open-photo-standards') {
+    state.modal = { type: 'photo-standards' };
+    render();
+    return;
+  }
+
 
   if (action === 'close-modal') {
     state.modal = null;
