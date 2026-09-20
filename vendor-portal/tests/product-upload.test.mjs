@@ -4,8 +4,10 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
-const start = source.indexOf('async function uploadProductMediaImage(file)');
-const end = source.indexOf("document.addEventListener('dragover'", start);
+const helperStart = source.indexOf('function productCategoryProfile(categoryName');
+const helperEnd = source.indexOf('function safeMediaUrl(value)', helperStart);
+const uploadStart = source.indexOf('async function uploadProductMediaImage(file)');
+const uploadEnd = source.indexOf("document.addEventListener('dragover'", uploadStart);
 function harness(upload = async () => ({ error: null })) {
   const nodes = new Map();
   for (const id of ['prod-image', 'prod-image-file', 'prod-image-upload-status', 'cover-thumb-preview']) {
@@ -25,11 +27,24 @@ function harness(upload = async () => ({ error: null })) {
       querySelector: () => null,
       querySelectorAll: () => [submit],
     },
+    URL: {
+      createObjectURL: () => 'blob:test-image',
+      revokeObjectURL() {},
+    },
+    Image: class {
+      constructor() {
+        this.naturalWidth = 1200;
+        this.naturalHeight = 1200;
+      }
+      set src(_value) {
+        this.onload();
+      }
+    },
     api: async () => { signingCalls++; return { path: 'merchant-one/products/photo.png', token: 'signed', signedUrl: 'https://storage.invalid/upload', publicUrl: 'https://storage.invalid/photo.png' }; },
     showNotice: (message, type) => notices.push({ message, type }),
     escapeHtml: (value) => value, icon: () => '', Event: class {}, console: { error() {} },
   });
-  vm.runInContext(source.slice(start, end), context);
+  vm.runInContext(source.slice(helperStart, helperEnd) + source.slice(uploadStart, uploadEnd), context);
   return { run: (file) => context.uploadProductMediaImage(file), state, nodes, notices, submit, calls: () => signingCalls };
 }
 const photo = { name: 'photo.png', type: 'image/png', size: 1024 };
