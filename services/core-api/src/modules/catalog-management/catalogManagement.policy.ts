@@ -58,6 +58,8 @@ export function assertProductReadyForSubmission(input: {
   category: { isActive: boolean; parentId: string | null } | null;
   variants: Array<{ sku: string | null; priceMinor: number }>;
   media: Array<{ mediaType: string }>;
+  weightKg: unknown;
+  dimensionsCm: string | null;
 }): void {
   if (!input.description || input.description.trim().length < 20) {
     throw errors.conflict('PRODUCT_INCOMPLETE', 'A product description of at least 20 characters is required.');
@@ -70,5 +72,8 @@ export function assertProductReadyForSubmission(input: {
   }
   if (!input.media.some((media) => media.mediaType === 'image')) {
     throw errors.conflict('PRODUCT_INCOMPLETE', 'At least one product image is required.');
+  }
+  if (!Number.isFinite(Number(input.weightKg)) || Number(input.weightKg) <= 0 || !input.dimensionsCm?.trim()) {
+    throw errors.conflict('PRODUCT_INCOMPLETE', 'Packed weight and size are required before submitting a listing.');
   }
 }

@@ -215,6 +215,8 @@ test("Non-payment purchase lifecycle through real SQL and HTTP", async (t) => {
       assert.equal((await request(root + '/moderate', merchantUser, 'POST', {decision: 'publish', note: 'Photo reviewed and approved.'})).status, 403);
       const detail = await request(`/v1/admin/catalogue/${productId}`, moderator);
       assert.equal(detail.status, 200, JSON.stringify(detail.body));
+      assert.ok(Number(detail.body.data.record.weightKg) > 0);
+      assert.ok(detail.body.data.record.dimensionsCm);
       const approved = await request(root + '/moderate', moderator, 'POST', {decision: 'publish', note: 'Photo reviewed and approved.'}, id(), {'If-Match': String(detail.body.data.record.version)});
       assert.equal(approved.status, 200, JSON.stringify(approved.body));
       assert.equal((await visible()).media[0].mediaUrl, imageUrl);

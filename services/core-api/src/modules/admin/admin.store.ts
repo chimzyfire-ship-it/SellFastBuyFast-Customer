@@ -233,6 +233,10 @@ export async function detailRecord(section: string, id: string, actor: Actor) {
     entries: [],
   };
   if (section === "catalogue") {
+    const [shipping] = await query(
+      sql`select weight_kg::text as "weightKg",dimensions_cm as "dimensionsCm",return_policy::text as "returnPolicy",warranty::text as warranty from products where id=${id}`,
+    );
+    if (shipping) data.record = { ...record, ...shipping };
     data.media = await query(
       sql`select id,media_url as url,alt_text as alt from product_media where product_id=${id} and media_type='image' order by sort_order,id`,
     );
