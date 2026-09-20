@@ -153,6 +153,69 @@ function isMediaUrlValid(value) {
   return Boolean(safeUrl(trimmed));
 }
 
+function productCategoryProfile(categoryName = '') {
+  const category = categoryName.toLowerCase();
+  if (/fashion|clothing|footwear|shoe|apparel|jewell|bag/.test(category)) {
+    return { key: 'fashion', minWidth: 1200, minHeight: 1200, ratios: [1], label: 'Square (1:1), at least 1200 × 1200 px', detail: 'Show the full item on a clean background. Include every colour or size offered.' };
+  }
+  if (/electronic|phone|computer|appliance|tech/.test(category)) {
+    return { key: 'electronics', minWidth: 1200, minHeight: 900, ratios: [1, 4 / 3, 3 / 4], label: 'Square or 4:3, at least 1200 × 900 px', detail: 'Show the item powered on where useful, plus ports, model details and accessories.' };
+  }
+  if (/beauty|health|food|grocery/.test(category)) {
+    return { key: 'consumables', minWidth: 1200, minHeight: 1200, ratios: [1], label: 'Square (1:1), at least 1200 × 1200 px', detail: 'Keep the label, size and expiry information clearly readable.' };
+  }
+  return { key: 'standard', minWidth: 1200, minHeight: 1200, ratios: [1], label: 'Square (1:1), at least 1200 × 1200 px', detail: 'Use a bright, sharp product photo on a clean background.' };
+}
+
+function productOptionFields(profile) {
+  if (profile.key === 'fashion') return { primaryLabel: 'Sizes', primaryPrefix: 'EU ', primaryOptions: ['39', '40', '41', '42', '43', '44', '45'], secondaryLabel: 'Colours', secondaryOptions: ['Black', 'Brown', 'Navy', 'White', 'Tan'] };
+  if (profile.key === 'electronics') return { primaryLabel: 'Storage', primaryPrefix: '', primaryOptions: ['64 GB', '128 GB', '256 GB', '512 GB'], secondaryLabel: 'Colours', secondaryOptions: ['Black', 'Silver', 'Blue', 'Gold'] };
+  if (profile.key === 'consumables') return { primaryLabel: 'Size or volume', primaryPrefix: '', primaryOptions: ['50 ml', '100 ml', '200 ml', '500 ml'], secondaryLabel: 'Type', secondaryOptions: ['Standard', 'Value pack', 'Bundle'] };
+  return { primaryLabel: 'Option', primaryPrefix: '', primaryOptions: ['Small', 'Medium', 'Large'], secondaryLabel: 'Colour', secondaryOptions: ['Black', 'White', 'Blue', 'Other'] };
+}
+
+function productVariantLabel(primary, secondary, categoryName = '') {
+  const options = productOptionFields(productCategoryProfile(categoryName));
+  return `${options.primaryPrefix}${primary} / ${secondary}`;
+}
+
+function currentProductCategoryProfile() {
+  const select = document.getElementById('prod-category');
+  return productCategoryProfile(select?.options[select.selectedIndex]?.text || '');
+}
+
+function imageFitsProfile(width, height, profile) {
+  if (width < profile.minWidth || height < profile.minHeight) return false;
+  const ratio = width / height;
+  return profile.ratios.some((expected) => Math.abs(ratio - expected) <= 0.015);
+}
+
+function imageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('The selected image could not be read.'));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function updateProductImageRequirements() {
+  const profile = currentProductCategoryProfile();
+  const longRule = document.getElementById('product-photo-rule');
+  const shortRule = document.getElementById('product-photo-rule-short');
+  const guidance = document.getElementById('product-photo-guidance');
+  if (longRule) longRule.textContent = profile.label;
+  if (shortRule) shortRule.textContent = profile.label;
+  if (guidance) guidance.textContent = profile.detail;
+}
+
 function safeMediaUrl(value) {
   if (!value || typeof value !== 'string') return '';
   const trimmed = value.trim();
@@ -1397,42 +1460,43 @@ function renderAddProductView() {
   // Form values (default or editing)
   const title = draft.title || '';
   const categoryId = draft.categoryId || '';
-  const brand = draft.brand || 'SellFast Signature';
+  const brand = draft.brand || '';
   const condition = draft.condition || 'brand_new';
-  const tags = draft.tags || 'mens footwear, formal, genuine leather';
+  const tags = draft.tags || '';
   const description = draft.description || '';
-  const sku = draft.sku || (isEditing ? '' : `SFBF-SKU-${Math.floor(1000 + Math.random() * 9000)}`);
-  const priceNaira = draft.priceNaira || '45000';
-  const comparePriceNaira = draft.comparePriceNaira || '55000';
-  const availableQuantity = draft.availableQuantity || '15';
+  const sku = draft.sku || '';
+  const priceNaira = draft.priceNaira || '';
+  const comparePriceNaira = draft.comparePriceNaira || '';
+  const availableQuantity = draft.availableQuantity || '';
   const lowStockThreshold = draft.lowStockThreshold || '3';
   const variantMode = draft.variantMode || 'single'; // 'single' | 'variants'
-  const selectedSizes = Array.isArray(draft.selectedSizes) && draft.selectedSizes.length > 0 ? draft.selectedSizes : ['40', '41', '42', '43', '44'];
-  const selectedColors = Array.isArray(draft.selectedColors) && draft.selectedColors.length > 0 ? draft.selectedColors : ['Black'];
+  const selectedSizes = Array.isArray(draft.selectedSizes) ? draft.selectedSizes : [];
+  const selectedColors = Array.isArray(draft.selectedColors) ? draft.selectedColors : [];
   const matrixOptions = selectedSizes.flatMap((size) => selectedColors.map((color) => ({ size, color }))).slice(0, 100);
   const matrixVariantByOption = new Map((draft.variantMatrix || []).map((variant) => [
     `${variant.optionSize || ''}:${variant.optionColor || ''}`,
     variant,
   ]));
-  const bullet1 = draft.bullet1 || '100% Genuine Handcrafted Italian Calfskin Leather';
-  const bullet2 = draft.bullet2 || 'Cushioned Memory Foam Insole with Anti-Skid Rubber Sole';
-  const bullet3 = draft.bullet3 || 'Reinforced Goodyear Welted Construction for Longevity';
-  const defaultProductCover = 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80';
+  const bullet1 = draft.bullet1 || '';
+  const bullet2 = draft.bullet2 || '';
+  const bullet3 = draft.bullet3 || '';
+  const careInstructions = draft.careInstructions || '';
   const imageUrl = draft.imageUrl || '';
-  const weightKg = draft.weightKg || '0.85';
-  const dimensionsCm = draft.dimensionsCm || '33 × 21 × 12';
+  const weightKg = draft.weightKg || '';
+  const dimensionsCm = draft.dimensionsCm || '';
   const returnPolicy = draft.returnPolicy || '7_day_escrow';
   const warranty = draft.warranty || '30_days';
   const submitForReview = draft.submitForReview !== false;
   const previewMode = state.previewMode || 'card'; // 'card' | 'detail'
 
   // Live preview computations
-  const previewImg = safeMediaUrl(imageUrl) || defaultProductCover;
-  const previewTitle = title || 'Italian Leather Men\'s Oxford Shoes';
-  const previewBrand = brand || 'SellFast Signature';
-  const selectedCat = state.categories.find((c) => c.id === categoryId)?.name || 'Footwear & Fashion';
-  const previewPriceNum = Number(priceNaira) || 45000;
-  const previewPrice = formatNaira(previewPriceNum * 100);
+  const previewImg = safeMediaUrl(imageUrl);
+  const hasImage = Boolean(previewImg);
+  const previewTitle = title || 'Your product name';
+  const previewBrand = brand || 'Your brand';
+  const selectedCat = state.categories.find((c) => c.id === categoryId)?.name || 'Category';
+  const previewPriceNum = Number(priceNaira) || 0;
+  const previewPrice = previewPriceNum ? formatNaira(previewPriceNum * 100) : 'Add a price';
   const previewCompareNum = Number(comparePriceNaira) || 0;
   const previewCompare = previewCompareNum > 0 ? formatNaira(previewCompareNum * 100) : '';
   const discountPercent = (previewCompareNum > previewPriceNum && previewPriceNum > 0)
@@ -1453,16 +1517,16 @@ function renderAddProductView() {
   // Quality score & readiness checklist
   const checkTitle = title.trim().length >= 10;
   const checkCategory = Boolean(categoryId);
-  const checkImage = isMediaUrlValid(imageUrl);
+  const checkImage = isMediaUrlValid(imageUrl) && draft.imageValidation?.valid !== false;
   const checkPrice = previewPriceNum > 0;
   const checkStock = qtyNum > 0;
   const checkDesc = description.trim().length >= 20 || (bullet1 && bullet2);
-  const checksPassed = [checkTitle, checkCategory, checkImage, checkPrice, checkStock, checkDesc].filter(Boolean).length;
-  const qualityScore = Math.round((checksPassed / 6) * 100);
+  const checkShipping = Boolean(weightKg && dimensionsCm);
+  const checksPassed = [checkTitle, checkCategory, checkImage, checkPrice, checkStock, checkDesc, checkShipping].filter(Boolean).length;
+  const qualityScore = Math.round((checksPassed / 7) * 100);
 
-  // Available size & color options
-  const footwearSizes = ['39', '40', '41', '42', '43', '44', '45'];
-  const popularColors = ['Black', 'Brown', 'Navy', 'White', 'Tan'];
+  const categoryProfile = productCategoryProfile(state.categories.find((c) => c.id === categoryId)?.name || '');
+  const variantFields = productOptionFields(categoryProfile);
 
   return `
     <div class="view-header">
@@ -1493,16 +1557,16 @@ function renderAddProductView() {
       <form id="product-form" novalidate style="display:flex;flex-direction:column;gap:0;">
         ${state.formError ? `<div class="error-summary" role="alert" style="margin-bottom:18px;">${icon('alert-circle')} <span>${escapeHtml(state.formError)}</span></div>` : ''}
 
-        <!-- Section 1: General Identity & Taxonomy -->
+        <!-- Section 1: The essentials -->
         <div class="studio-section">
           <div class="studio-section-header">
-            <div class="studio-section-title">${icon('file-text')} General Identity & Taxonomy</div>
+            <div class="studio-section-title">${icon('file-text')} About your item</div>
             <span class="studio-section-badge">Required</span>
           </div>
           <div class="studio-section-body">
             <div class="form-group">
               <label class="form-label" for="prod-title">
-                <span>Product Title</span>
+                <span>What are you selling?</span>
                 <span class="field-help"><span id="title-char-count">${title.length}</span>/180 (30–80 recommended)</span>
               </label>
               <input class="input" id="prod-title" name="title" placeholder="e.g. Italian Leather Men's Oxford Shoes" value="${escapeAttribute(title)}" maxlength="180" required />
@@ -1510,19 +1574,21 @@ function renderAddProductView() {
 
             <div class="grid-2col">
               <div class="form-group">
-                <label class="form-label" for="prod-category">Marketplace Category</label>
+              <label class="form-label" for="prod-category">Choose a category</label>
                 <select class="select" id="prod-category" name="categoryId" required ${canCreate ? '' : 'disabled'}>
                   <option value="">Select Category</option>
                   ${state.categories.map((c) => `<option value="${escapeAttribute(c.id)}" ${c.id === categoryId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label" for="prod-brand">Brand / Designer</label>
+                <label class="form-label" for="prod-brand">Brand</label>
                 <input class="input" id="prod-brand" name="brand" placeholder="e.g. SellFast Signature, Nike, Zara" value="${escapeAttribute(brand)}" required />
               </div>
             </div>
 
-            <div class="grid-2col">
+            <details class="studio-advanced-fields">
+              <summary>More item details (optional)</summary>
+              <div class="grid-2col" style="margin-top:14px;">
               <div class="form-group">
                 <label class="form-label" for="prod-condition">Item Condition</label>
                 <select class="select" id="prod-condition" name="condition">
@@ -1532,10 +1598,11 @@ function renderAddProductView() {
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label" for="prod-tags">Search Tags & Keywords</label>
+                <label class="form-label" for="prod-tags">Search words</label>
                 <input class="input" id="prod-tags" name="tags" placeholder="e.g. leather, oxford, mens footwear, black" value="${escapeAttribute(tags)}" />
               </div>
-            </div>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -1547,7 +1614,7 @@ function renderAddProductView() {
               <button type="button" class="btn btn-quiet btn-xs" data-action="open-photo-standards" style="font-weight:600;color:var(--forest-800);display:inline-flex;align-items:center;gap:5px;">
                 ${icon('info')} View Full Image Standards
               </button>
-              <span class="studio-section-badge">1:1 Square Standard</span>
+              <span class="studio-section-badge" id="product-photo-rule">${escapeHtml(productCategoryProfile(state.categories.find((c) => c.id === categoryId)?.name || '').label)}</span>
             </div>
           </div>
           <div class="studio-section-body">
@@ -1570,7 +1637,7 @@ function renderAddProductView() {
                 <div class="product-upload-badges">
                   <span class="product-upload-badge highlight">Allowed Formats: JPG, PNG, WebP</span>
                   <span class="product-upload-badge">Max: 5 MB</span>
-                  <span class="product-upload-badge">1:1 Square</span>
+                  <span class="product-upload-badge" id="product-photo-rule-short">Category-aware image rules</span>
                 </div>
               </div>
 
@@ -1580,7 +1647,8 @@ function renderAddProductView() {
               <!-- Image Active Preview & Specs -->
               <div class="photo-standards-banner">
                 <div class="photo-standards-thumb-wrap">
-                  <img src="${escapeAttribute(previewImg)}" alt="Cover thumbnail" id="cover-thumb-preview" class="photo-standards-thumb" onerror="this.src='https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80'" />
+                  <img src="${escapeAttribute(previewImg)}" alt="Uploaded product thumbnail" id="cover-thumb-preview" class="photo-standards-thumb" ${hasImage ? '' : 'hidden'} />
+                  <span class="photo-standards-thumb-empty" id="cover-thumb-empty" ${hasImage ? 'hidden' : ''}>${icon('image')}</span>
                 </div>
                 <div class="photo-standards-info">
                   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
@@ -1591,8 +1659,8 @@ function renderAddProductView() {
                       ${icon('maximize')} Open Fullscreen Guide
                     </button>
                   </div>
-                  <p style="margin:4px 0 8px;font-size:12px;color:var(--ink-muted);line-height:1.45;">
-                    Verified high-contrast imagery on clean neutral backgrounds achieves <strong>38% higher conversion</strong> and passes Operations Admin review on first submission.
+                  <p style="margin:4px 0 8px;font-size:12px;color:var(--ink-muted);line-height:1.45;" id="product-photo-guidance">
+                    Choose a category first. We will check the file dimensions and shape before upload.
                   </p>
                   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                     <button type="button" class="btn btn-quiet btn-xs" data-action="trigger-product-image-upload">
@@ -1604,78 +1672,49 @@ function renderAddProductView() {
                   </div>
                 </div>
               </div>
-
-
-              <!-- Advanced: Manual URL / Presets Dropdown -->
-              <details style="margin-top:2px;font-size:12px;" ${imageUrl && !imageUrl.includes('supabase.co') ? 'open' : ''}>
-                <summary style="cursor:pointer;color:var(--forest-800);font-weight:600;display:inline-flex;align-items:center;gap:4px;user-select:none;">
-                  ${icon('link')} Advanced: Direct Image URL & Sample Presets
-                </summary>
-                <div style="margin-top:10px;padding:12px;background:var(--page-subtle);border-radius:var(--radius-xs);border:1px solid var(--border-light);">
-                  <div class="form-group" style="margin-bottom:8px;">
-                    <label class="form-label" for="prod-image">Verified Image CDN URL</label>
-                    <input class="input" id="prod-image" name="imageUrl" type="url" placeholder="https://your-image-host.example/photo.jpg" value="${escapeAttribute(imageUrl)}" />
-                  </div>
-                  <div class="image-preset-pills">
-                    <span style="font-size:11.5px;color:var(--ink-muted);margin-right:2px;">Sample Presets:</span>
-                    <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Italian Leather Men's Oxford Shoes" data-brand="SellFast Signature" data-url="https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80" data-price="45000" data-compare="55000">Men's Shoes</button>
-                    <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Luxury Leather Structured Handbag" data-brand="Milano Leather" data-url="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=800&q=80" data-price="68000" data-compare="85000">Leather Handbag</button>
-                    <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Stainless Steel Chrono Smartwatch" data-brand="Apex Tech" data-url="https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=800&q=80" data-price="32000" data-compare="40000">Smartwatch</button>
-                    <button type="button" class="image-preset-pill" data-action="use-sample-image" data-title="Artisan French Eau De Parfum 100ml" data-brand="Maison Paris" data-url="https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?auto=format&fit=crop&w=800&q=80" data-price="28000" data-compare="35000">Perfume</button>
-                  </div>
-                </div>
-              </details>
+              <input id="prod-image" name="imageUrl" type="hidden" value="${escapeAttribute(imageUrl)}" />
             </div>
           </div>
         </div>
 
-        <!-- Section 3: Pricing, Profit & Escrow Settlement Intelligence -->
+        <!-- Section 3: Price and earnings -->
         <div class="studio-section">
           <div class="studio-section-header">
-            <div class="studio-section-title">${icon('credit-card')} Pricing, Profit & Escrow Settlement</div>
+            <div class="studio-section-title">${icon('credit-card')} Price & earnings</div>
             <span class="studio-section-badge">Naira (₦)</span>
           </div>
           <div class="studio-section-body">
             <div class="grid-2col">
               <div class="form-group">
-                <label class="form-label" for="prod-price">Retail Selling Price (₦ NGN)</label>
+                <label class="form-label" for="prod-price">Price customers pay (₦)</label>
                 <input class="input" id="prod-price" name="priceNaira" type="number" min="100" step="100" placeholder="e.g. 45000" value="${escapeAttribute(priceNaira)}" required />
                 <span class="field-help">Final price displayed to buyers in mobile app.</span>
               </div>
               <div class="form-group">
                 <label class="form-label" for="prod-compare-price">
-                  <span>Compare-at Original Price</span>
-                  <span class="field-help">Strike-through discount</span>
+                  <span>Previous price (optional)</span>
+                  <span class="field-help">Shows a sale when it is higher than your price</span>
                 </label>
                 <input class="input" id="prod-compare-price" name="comparePriceNaira" type="number" min="100" step="100" placeholder="e.g. 55000" value="${escapeAttribute(comparePriceNaira)}" />
                 <span class="field-help">Leave empty if not offering a promotional discount.</span>
               </div>
             </div>
 
-            <!-- Escrow Settlement & Profit Calculator Box -->
             <div class="payout-calculator-box">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
                 <span style="font-size:12px;font-weight:700;color:var(--forest-900);display:flex;align-items:center;gap:6px;">
-                  ${icon('calculator')} Escrow Net Payout Estimator
+                  ${icon('calculator')} Estimated amount you receive
                 </span>
-                <span style="font-size:11px;font-weight:600;color:var(--ink-muted);">Standard 5% Escrow Fee</span>
+                <span style="font-size:11px;font-weight:600;color:var(--ink-muted);">After the 5% marketplace fee</span>
               </div>
               <div class="payout-calc-grid">
                 <div class="payout-calc-item">
-                  <span class="payout-calc-val" id="calc-customer-val">${previewPrice}</span>
-                  <span class="payout-calc-label">Customer Pays</span>
-                </div>
-                <div class="payout-calc-item">
-                  <span class="payout-calc-val fee" id="calc-fee-val">-${platformFeeText}</span>
-                  <span class="payout-calc-label">Platform Escrow (5%)</span>
-                </div>
-                <div class="payout-calc-item">
                   <span class="payout-calc-val profit" id="calc-payout-val">${estimatedPayoutText}</span>
-                  <span class="payout-calc-label">Your Net Payout</span>
+                  <span class="payout-calc-label">Per item sold</span>
                 </div>
               </div>
               <div style="font-size:11px;color:var(--ink-muted);margin-top:10px;text-align:center;border-top:1px dashed rgba(10,82,67,0.15);padding-top:8px;display:flex;align-items:center;justify-content:center;gap:6px;">
-                ${icon('shield-check')} Funds held securely in escrow until buyer receives delivery and the 7-day return inspection window passes.
+                ${icon('shield-check')} Payment is released after confirmed delivery and the return window.
               </div>
             </div>
           </div>
@@ -1684,17 +1723,17 @@ function renderAddProductView() {
         <!-- Section 4: Multi-Variant Matrix & Inventory Controls -->
         <div class="studio-section">
           <div class="studio-section-header">
-            <div class="studio-section-title">${icon('package')} Variants & Stock Inventory</div>
-            <span class="studio-section-badge">Real-Time Sync</span>
+            <div class="studio-section-title">${icon('package')} Stock & options</div>
+            <span class="studio-section-badge">Required</span>
           </div>
           <div class="studio-section-body">
             <!-- Mode Toggle Tabs -->
             <div class="variant-type-tabs">
               <button type="button" class="variant-type-tab ${variantMode === 'single' ? 'active' : ''}" data-action="set-variant-mode" data-mode="single">
-                ${icon('box')} Single Product
+                ${icon('box')} One option
               </button>
               <button type="button" class="variant-type-tab ${variantMode === 'variants' ? 'active' : ''}" data-action="set-variant-mode" data-mode="variants">
-                ${icon('grid')} Multi-Variant Matrix (Sizes/Colors)
+                ${icon('grid')} Sizes or colours
               </button>
             </div>
 
@@ -1702,11 +1741,12 @@ function renderAddProductView() {
             <div id="single-inventory-box" style="display:${variantMode === 'single' ? 'block' : 'none'};">
               <div class="grid-2col">
                 <div class="form-group">
-                  <label class="form-label" for="prod-sku">Merchant SKU</label>
-                  <input class="input" id="prod-sku" name="sku" placeholder="SFBF-SHOES-01" value="${escapeAttribute(sku)}" required />
+                  <label class="form-label" for="prod-sku">Your item code</label>
+                  <input class="input" id="prod-sku" name="sku" placeholder="e.g. BLUE-SNEAKER-01" value="${escapeAttribute(sku)}" required />
+                  <span class="field-help">A unique code you use to find this item in your own stock records.</span>
                 </div>
                 <div class="form-group">
-                  <label class="form-label" for="prod-stock">Available Quantity</label>
+                  <label class="form-label" for="prod-stock">How many can you sell now?</label>
                   <input class="input" id="prod-stock" name="availableQuantity" type="number" min="0" step="1" placeholder="e.g. 15" value="${escapeAttribute(availableQuantity)}" required />
                 </div>
               </div>
@@ -1723,12 +1763,12 @@ function renderAddProductView() {
             <div id="variants-matrix-box" style="display:${variantMode === 'variants' ? 'block' : 'none'};">
               <!-- Size Options -->
               <div class="variant-options-group">
-                <label class="form-label">Select Available Sizes</label>
+                <label class="form-label">Choose the ${escapeHtml(variantFields.primaryLabel.toLowerCase())} you have</label>
                 <div class="variant-pills-row">
-                  ${footwearSizes.map((sz) => `
+                  ${variantFields.primaryOptions.map((sz) => `
                     <label class="variant-checkbox-pill">
                       <input type="checkbox" name="variantSize" value="${sz}" ${selectedSizes.includes(sz) ? 'checked' : ''} data-action="toggle-variant-pill" />
-                      <span>EU ${sz}</span>
+                      <span>${escapeHtml(`${variantFields.primaryPrefix}${sz}`)}</span>
                     </label>
                   `).join('')}
                 </div>
@@ -1736,9 +1776,9 @@ function renderAddProductView() {
 
               <!-- Color Options -->
               <div class="variant-options-group">
-                <label class="form-label">Select Available Colors</label>
+                <label class="form-label">Choose the ${escapeHtml(variantFields.secondaryLabel.toLowerCase())} you have</label>
                 <div class="variant-pills-row">
-                  ${popularColors.map((col) => `
+                  ${variantFields.secondaryOptions.map((col) => `
                     <label class="variant-checkbox-pill">
                       <input type="checkbox" name="variantColor" value="${col}" ${selectedColors.includes(col) ? 'checked' : ''} data-action="toggle-variant-pill" />
                       <span>${col}</span>
@@ -1766,7 +1806,7 @@ function renderAddProductView() {
                       const matrixStock = savedVariant ? String(savedVariant.availableQuantity) : String(Math.max(2, 6 - idx));
                       return `
                       <tr>
-                        <td><strong>EU ${size} / ${color}</strong></td>
+                        <td><strong>${escapeHtml(productVariantLabel(size, color, categoryProfile.key === 'standard' ? '' : state.categories.find((c) => c.id === categoryId)?.name || ''))}</strong></td>
                         <td><input class="variant-matrix-input" data-variant-field="sku" data-option-size="${escapeAttribute(size)}" data-option-color="${escapeAttribute(color)}" value="${escapeAttribute(matrixSku)}" /></td>
                         <td><input class="variant-matrix-input" data-variant-field="price" type="number" min="1" value="${escapeAttribute(matrixPrice)}" /></td>
                         <td><input class="variant-matrix-input" data-variant-field="stock" type="number" min="0" value="${escapeAttribute(matrixStock)}" /></td>
@@ -1800,20 +1840,26 @@ function renderAddProductView() {
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="prod-desc">Detailed Description & Care Instructions</label>
-              <textarea class="textarea" id="prod-desc" name="description" placeholder="Describe materials, size guidance, packaging, and authentic craftsmanship…" style="min-height:110px;" required>${escapeHtml(description)}</textarea>
+              <label class="form-label" for="prod-desc">Product description</label>
+              <textarea class="textarea" id="prod-desc" name="description" placeholder="Example: Lightweight blue canvas sneakers with a cushioned insole. Best for everyday wear. Includes original box." style="min-height:110px;" required>${escapeHtml(description)}</textarea>
+              <span class="field-help">This appears below the image on the product page.</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="prod-care">Care instructions (optional)</label>
+              <textarea class="textarea" id="prod-care" name="careInstructions" placeholder="Example: Wipe with a damp cloth. Air dry away from direct heat." style="min-height:78px;">${escapeHtml(careInstructions)}</textarea>
+              <span class="field-help">Shoppers see this below the product description.</span>
             </div>
 
             <div class="grid-2col">
               <div class="form-group">
-                <label class="form-label" for="prod-weight">Package Weight (kg)</label>
-                <input class="input" id="prod-weight" name="weightKg" type="number" step="0.05" min="0.1" placeholder="0.85" value="${escapeAttribute(weightKg)}" />
+                <label class="form-label" for="prod-weight">Packed weight (kg)</label>
+                <input class="input" id="prod-weight" name="weightKg" type="number" step="0.05" min="0.1" placeholder="e.g. 0.85" value="${escapeAttribute(weightKg)}" required />
                 <span class="field-help">Used for GIGL / DHL automated courier rates.</span>
               </div>
               <div class="form-group">
-                <label class="form-label" for="prod-dims">Parcel Dimensions (L × W × H cm)</label>
-                <input class="input" id="prod-dims" name="dimensionsCm" placeholder="33 × 21 × 12" value="${escapeAttribute(dimensionsCm)}" />
-                <span class="field-help">Box packaging dimensions.</span>
+                <label class="form-label" for="prod-dims">Packed size (L × W × H cm)</label>
+                <input class="input" id="prod-dims" name="dimensionsCm" placeholder="e.g. 33 × 21 × 12" value="${escapeAttribute(dimensionsCm)}" required />
+                <span class="field-help">Required for delivery pricing and visible to Operations during approval.</span>
               </div>
             </div>
 
@@ -1850,26 +1896,29 @@ function renderAddProductView() {
             <div class="quality-checklist-card">
               <div class="quality-header">
                 <div class="quality-title">${icon('check-square')} Marketplace Moderation Readiness</div>
-                <span style="font-size:11px;font-weight:700;color:var(--ink-muted);" id="quality-count-text">${checksPassed}/6 Standards Met</span>
+                <span style="font-size:11px;font-weight:700;color:var(--ink-muted);" id="quality-count-text">${checksPassed}/7 Checks complete</span>
               </div>
               <div class="quality-items-list">
                 <div class="quality-item ${checkTitle ? 'passed' : 'missing'}" id="chk-title">
-                  ${icon(checkTitle ? 'check' : 'circle')} Title Length (10+ characters)
+                  ${icon(checkTitle ? 'check' : 'circle')} Clear name (10+ characters)
                 </div>
                 <div class="quality-item ${checkCategory ? 'passed' : 'missing'}" id="chk-cat">
-                  ${icon(checkCategory ? 'check' : 'circle')} Category Taxonomy Assigned
+                  ${icon(checkCategory ? 'check' : 'circle')} Category chosen
                 </div>
                 <div class="quality-item ${checkImage ? 'passed' : 'missing'}" id="chk-img">
-                  ${icon(checkImage ? 'check' : 'circle')} 1:1 High-Res Media Loaded
+                  ${icon(checkImage ? 'check' : 'circle')} Photo meets category rules
                 </div>
                 <div class="quality-item ${checkPrice ? 'passed' : 'missing'}" id="chk-price">
-                  ${icon(checkPrice ? 'check' : 'circle')} Valid Retail Naira Price
+                  ${icon(checkPrice ? 'check' : 'circle')} Selling price added
                 </div>
                 <div class="quality-item ${checkStock ? 'passed' : 'missing'}" id="chk-stock">
-                  ${icon(checkStock ? 'check' : 'circle')} Inventory Units Configured
+                  ${icon(checkStock ? 'check' : 'circle')} Sellable quantity added
                 </div>
                 <div class="quality-item ${checkDesc ? 'passed' : 'missing'}" id="chk-desc">
-                  ${icon(checkDesc ? 'check' : 'circle')} Specifications & Bullet Highlights
+                  ${icon(checkDesc ? 'check' : 'circle')} Description or key highlights added
+                </div>
+                <div class="quality-item ${weightKg && dimensionsCm ? 'passed' : 'missing'}" id="chk-shipping">
+                  ${icon(weightKg && dimensionsCm ? 'check' : 'circle')} Packed weight and size added
                 </div>
               </div>
             </div>
@@ -1930,7 +1979,8 @@ function renderAddProductView() {
           ` : ''}
           <div class="shopper-card-mock">
             <div class="shopper-card-img-wrap">
-              <img src="${escapeAttribute(previewImg)}" alt="${escapeAttribute(previewTitle)}" class="shopper-card-img" id="preview-card-img" onerror="this.src='assets/product-sneakers-arch.jpg'" />
+              <img src="${escapeAttribute(previewImg)}" alt="${escapeAttribute(previewTitle)}" class="shopper-card-img" id="preview-card-img" ${hasImage ? '' : 'hidden'} />
+              <div class="shopper-preview-empty" id="preview-card-empty" ${hasImage ? 'hidden' : ''}>${icon('image')}<strong>Your product photo appears here</strong><span>Upload a category-approved image to begin.</span></div>
               <div class="shopper-badge-discount" id="preview-discount-badge" style="display:${discountPercent > 0 ? 'inline-block' : 'none'};">
                 <span id="preview-discount-val">${discountPercent}</span>% OFF
               </div>
@@ -1987,7 +2037,8 @@ function renderAddProductView() {
 
             <!-- Hero Image -->
             <div class="shopper-detail-hero">
-              <img src="${escapeAttribute(previewImg)}" alt="${escapeAttribute(previewTitle)}" id="detail-hero-img" style="width:100%;height:100%;object-fit:cover;" onerror="this.src='assets/product-sneakers-arch.jpg'" />
+              <img src="${escapeAttribute(previewImg)}" alt="${escapeAttribute(previewTitle)}" id="detail-hero-img" style="width:100%;height:100%;object-fit:cover;" ${hasImage ? '' : 'hidden'} />
+              <div class="shopper-preview-empty" id="detail-hero-empty" ${hasImage ? 'hidden' : ''}>${icon('image')}<strong>Your product photo</strong><span>will appear here</span></div>
               <div style="position:absolute;bottom:8px;left:0;right:0;display:flex;justify-content:center;gap:4px;">
                 <span style="width:6px;height:6px;border-radius:50%;background:#ffffff;"></span>
                 <span style="width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.4);"></span>
@@ -2014,13 +2065,13 @@ function renderAddProductView() {
                 </span>
               </div>
 
-              <!-- Available Sizes Row -->
+              <!-- Available product options -->
               <div>
-                <span style="font-size:11px;font-weight:700;color:var(--ink-muted);text-transform:uppercase;display:block;margin-bottom:6px;">Select Size</span>
+                <span style="font-size:11px;font-weight:700;color:var(--ink-muted);text-transform:uppercase;display:block;margin-bottom:6px;">Choose ${escapeHtml(variantFields.primaryLabel)}</span>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;" id="detail-sizes-row">
                   ${selectedSizes.map((sz, i) => `
                     <button type="button" class="sim-size-pill ${sz === (state.simSelectedSize || selectedSizes[0]) ? 'active' : ''}" data-action="sim-select-size" data-size="${escapeAttribute(sz)}">
-                      EU ${escapeHtml(sz)}
+                      ${escapeHtml(`${variantFields.primaryPrefix}${sz}`)}
                     </button>
                   `).join('')}
                 </div>
@@ -2032,6 +2083,8 @@ function renderAddProductView() {
                 ${bullet2 ? `<li>${escapeHtml(bullet2)}</li>` : ''}
                 ${bullet3 ? `<li>${escapeHtml(bullet3)}</li>` : ''}
               </ul>
+              <div class="shopper-preview-copy" id="detail-description-text" ${description ? '' : 'hidden'}>${escapeHtml(description)}</div>
+              <div class="shopper-preview-care" id="detail-care-text" ${careInstructions ? '' : 'hidden'}><strong>Care:</strong> ${escapeHtml(careInstructions)}</div>
 
               <!-- Escrow Guarantee Badge -->
               <div class="shopper-escrow-badge">
@@ -4208,9 +4261,10 @@ document.addEventListener('click', async (event) => {
       sku: '',
       priceNaira: '',
       comparePriceNaira: '',
-      availableQuantity: '10',
+      availableQuantity: '',
       description: '',
       imageUrl: '',
+      imageValidation: null,
       submitForReview: true,
     };
     state.activeView = 'add-product';
@@ -4402,7 +4456,8 @@ document.addEventListener('click', async (event) => {
     document.querySelectorAll('.sim-size-pill').forEach((p) => {
       p.classList.toggle('active', p.dataset.size === state.simSelectedSize);
     });
-    showSimToast(`Selected Size: EU ${state.simSelectedSize}`);
+    const options = productOptionFields(currentProductCategoryProfile());
+    showSimToast(`Selected ${options.primaryLabel}: ${options.primaryPrefix}${state.simSelectedSize}`);
     return;
   }
 
@@ -4436,21 +4491,22 @@ document.addEventListener('click', async (event) => {
     const checkedColors = Array.from(document.querySelectorAll('input[name="variantColor"]:checked')).map((el) => el.value);
 
     if (!state.productDraft) state.productDraft = {};
-    state.productDraft.selectedSizes = checkedSizes.length > 0 ? checkedSizes : ['42'];
-    state.productDraft.selectedColors = checkedColors.length > 0 ? checkedColors : ['Black'];
+    state.productDraft.selectedSizes = checkedSizes;
+    state.productDraft.selectedColors = checkedColors;
 
-    const skuVal = document.getElementById('prod-sku')?.value || 'SFBF-SKU';
-    const priceVal = document.getElementById('prod-price')?.value || '45000';
+    const skuVal = document.getElementById('prod-sku')?.value || '';
+    const priceVal = document.getElementById('prod-price')?.value || '';
+    const options = productOptionFields(currentProductCategoryProfile());
     const tbody = document.getElementById('variant-matrix-tbody');
     if (tbody) {
       const rowsHtml = state.productDraft.selectedSizes.flatMap((size) =>
         state.productDraft.selectedColors.map((color) => ({ size, color }))
       ).slice(0, 100).map(({ size, color }, idx) => `
           <tr>
-            <td><strong>EU ${size} / ${color}</strong></td>
+            <td><strong>${escapeHtml(`${options.primaryPrefix}${size} / ${color}`)}</strong></td>
             <td><input class="variant-matrix-input" data-variant-field="sku" data-option-size="${escapeAttribute(size)}" data-option-color="${escapeAttribute(color)}" value="${escapeAttribute(`${skuVal}-${size}-${color.replace(/\s+/g, '-').toUpperCase()}`)}" /></td>
             <td><input class="variant-matrix-input" data-variant-field="price" type="number" min="1" value="${escapeAttribute(priceVal)}" /></td>
-            <td><input class="variant-matrix-input" data-variant-field="stock" type="number" min="0" value="${Math.max(2, 6 - idx)}" /></td>
+            <td><input class="variant-matrix-input" data-variant-field="stock" type="number" min="0" placeholder="0" value="" /></td>
           </tr>`).join('');
       tbody.innerHTML = rowsHtml;
     }
@@ -4459,7 +4515,7 @@ document.addEventListener('click', async (event) => {
     if (detailSizes) {
       detailSizes.innerHTML = state.productDraft.selectedSizes.map((sz, i) => `
         <button type="button" class="sim-size-pill ${i === 0 ? 'active' : ''}" data-action="sim-select-size" data-size="${sz}">
-          EU ${sz}
+          ${options.primaryPrefix}${sz}
         </button>
       `).join('');
     }
@@ -4644,9 +4700,10 @@ document.addEventListener('input', (event) => {
   }
 
   // Live sync of Product Studio Shopper Preview & Realtime Calculators
-  if (['prod-title', 'prod-price', 'prod-compare-price', 'prod-stock', 'prod-image', 'prod-brand', 'prod-bullet1', 'prod-bullet2', 'prod-bullet3', 'prod-desc'].includes(event.target.id)) {
-    const titleVal = document.getElementById('prod-title')?.value || 'Product Title';
-    const brandVal = document.getElementById('prod-brand')?.value || 'SellFast Signature';
+  if (['prod-title', 'prod-category', 'prod-price', 'prod-compare-price', 'prod-stock', 'prod-image', 'prod-brand', 'prod-bullet1', 'prod-bullet2', 'prod-bullet3', 'prod-desc', 'prod-care', 'prod-weight', 'prod-dims'].includes(event.target.id)) {
+    const enteredTitle = document.getElementById('prod-title')?.value || '';
+    const titleVal = enteredTitle || 'Your product name';
+    const brandVal = document.getElementById('prod-brand')?.value || 'Your brand';
     const priceVal = Number(document.getElementById('prod-price')?.value) || 0;
     const compareVal = Number(document.getElementById('prod-compare-price')?.value) || 0;
     const stockVal = Number(document.getElementById('prod-stock')?.value) || 0;
@@ -4655,10 +4712,13 @@ document.addEventListener('input', (event) => {
     const b2 = document.getElementById('prod-bullet2')?.value?.trim();
     const b3 = document.getElementById('prod-bullet3')?.value?.trim();
     const descVal = document.getElementById('prod-desc')?.value?.trim() || '';
+    const careVal = document.getElementById('prod-care')?.value?.trim() || '';
+    const weightVal = document.getElementById('prod-weight')?.value?.trim() || '';
+    const dimensionsVal = document.getElementById('prod-dims')?.value?.trim() || '';
 
     // Title & Char Count
     const charCount = document.getElementById('title-char-count');
-    if (charCount) charCount.textContent = titleVal.length;
+    if (charCount) charCount.textContent = enteredTitle.length;
     const titleEl = document.getElementById('preview-title-text');
     if (titleEl) titleEl.textContent = titleVal;
     const detailTitleEl = document.getElementById('detail-title-text');
@@ -4700,11 +4760,7 @@ document.addEventListener('input', (event) => {
     }
 
     // Escrow & Settlement Calculations
-    const calcCust = document.getElementById('calc-customer-val');
-    const calcFee = document.getElementById('calc-fee-val');
     const calcPayout = document.getElementById('calc-payout-val');
-    if (calcCust) calcCust.textContent = formattedPrice;
-    if (calcFee) calcFee.textContent = `-${formatNaira(Math.round(priceVal * 0.05 * 100))}`;
     if (calcPayout) calcPayout.textContent = formatNaira(Math.round(priceVal * 0.95 * 100));
 
     // Stock Status
@@ -4724,6 +4780,10 @@ document.addEventListener('input', (event) => {
       if (previewImgEl) previewImgEl.src = imgVal;
       if (detailHeroEl) detailHeroEl.src = imgVal;
       if (coverThumbEl) coverThumbEl.src = imgVal;
+      previewImgEl?.removeAttribute('hidden');
+      detailHeroEl?.removeAttribute('hidden');
+      document.getElementById('preview-card-empty')?.setAttribute('hidden', '');
+      document.getElementById('detail-hero-empty')?.setAttribute('hidden', '');
     }
 
     // Bullet points
@@ -4732,12 +4792,16 @@ document.addEventListener('input', (event) => {
       const listItems = [b1, b2, b3].filter(Boolean);
       bulletsUl.innerHTML = listItems.length > 0
         ? listItems.map((b) => `<li>${escapeHtml(b)}</li>`).join('')
-        : '<li>100% Genuine Certified Quality</li>';
+        : '';
     }
+    const descriptionEl = document.getElementById('detail-description-text');
+    if (descriptionEl) { descriptionEl.textContent = descVal; descriptionEl.hidden = !descVal; }
+    const careEl = document.getElementById('detail-care-text');
+    if (careEl) { careEl.innerHTML = `<strong>Care:</strong> ${escapeHtml(careVal)}`; careEl.hidden = !careVal; }
 
     // Quality Score Checklist
-    const isTitleOk = titleVal.trim().length >= 10;
-    const isImgOk = Boolean(safeUrl(imgVal) || imgVal?.startsWith('assets/'));
+    const isTitleOk = enteredTitle.trim().length >= 10;
+    const isImgOk = Boolean(safeUrl(imgVal) || imgVal?.startsWith('assets/')) && state.productDraft?.imageValidation?.valid !== false;
     const isPriceOk = priceVal > 0;
     const isStockOk = stockVal > 0;
     const isDescOk = descVal.length >= 20 || (b1 && b2);
@@ -4754,13 +4818,14 @@ document.addEventListener('input', (event) => {
     updateChk('chk-price', isPriceOk, 'Valid Retail Naira Price');
     updateChk('chk-stock', isStockOk, 'Inventory Units Configured');
     updateChk('chk-desc', isDescOk, 'Specifications & Bullet Highlights');
+    updateChk('chk-shipping', Boolean(weightVal && dimensionsVal), 'Packed weight and size added');
 
     const catSelected = Boolean(document.getElementById('prod-category')?.value);
-    const passedCount = [isTitleOk, catSelected, isImgOk, isPriceOk, isStockOk, isDescOk].filter(Boolean).length;
-    const scorePct = Math.round((passedCount / 6) * 100);
+    const passedCount = [isTitleOk, catSelected, isImgOk, isPriceOk, isStockOk, isDescOk, Boolean(weightVal && dimensionsVal)].filter(Boolean).length;
+    const scorePct = Math.round((passedCount / 7) * 100);
 
     const countText = document.getElementById('quality-count-text');
-    if (countText) countText.textContent = `${passedCount}/6 Standards Met`;
+    if (countText) countText.textContent = `${passedCount}/7 Checks complete`;
 
     const scorePill = document.getElementById('quality-score-pill');
     if (scorePill) {
@@ -4871,6 +4936,13 @@ document.addEventListener('change', (event) => {
     const catText = catSelect.options[catSelect.selectedIndex]?.text;
     const catEl = document.getElementById('preview-cat-text');
     if (catEl && catText && catText !== 'Select Category') catEl.textContent = catText;
+    document.getElementById('prod-category')?.dispatchEvent(new Event('input', { bubbles: true }));
+    state.productDraft ||= {};
+    state.productDraft.selectedSizes = [];
+    state.productDraft.selectedColors = [];
+    state.productDraft.variantMatrix = [];
+    state.simSelectedSize = null;
+    render();
   }
 });
 
@@ -4898,8 +4970,30 @@ async function uploadProductMediaImage(file) {
     return;
   }
 
+  const profile = currentProductCategoryProfile();
+  let dimensions;
+  try {
+    dimensions = await imageDimensions(file);
+  } catch (error) {
+    showNotice(error.message, 'error');
+    return;
+  }
+  if (!imageFitsProfile(dimensions.width, dimensions.height, profile)) {
+    const message = `${file.name} is ${dimensions.width} × ${dimensions.height}px. ${profile.label} is required for this category.`;
+    const statusEl = document.getElementById('prod-image-upload-status');
+    state.productDraft ||= {};
+    state.productDraft.imageValidation = { valid: false, ...dimensions, profile: profile.key };
+    if (statusEl) {
+      statusEl.style.display = 'flex';
+      statusEl.innerHTML = `${icon('alert-circle')} <span style="color:var(--rose-600);font-weight:600;">${escapeHtml(message)}</span>`;
+    }
+    showNotice(message, 'error');
+    return;
+  }
+
   const merchantId = state.merchant.id;
   const draft = state.productDraft ||= {};
+  draft.imageValidation = { valid: true, ...dimensions, profile: profile.key };
   const uploadBtn = document.querySelector('[data-action="trigger-product-image-upload"]');
   const uploadStatus = document.getElementById('prod-image-upload-status');
 
@@ -4949,6 +5043,8 @@ async function uploadProductMediaImage(file) {
       imgInput.dispatchEvent(new Event('input', { bubbles: true }));
     }
     if (thumbPreview) thumbPreview.src = publicUrl;
+    thumbPreview?.removeAttribute('hidden');
+    document.getElementById('cover-thumb-empty')?.setAttribute('hidden', '');
     if (cardMockImg) cardMockImg.src = publicUrl;
     if (detailMockImg) detailMockImg.src = publicUrl;
 
@@ -4958,7 +5054,7 @@ async function uploadProductMediaImage(file) {
 
     if (uploadStatus) {
       uploadStatus.style.display = 'flex';
-      uploadStatus.innerHTML = `${icon('check-circle')} <span style="color:var(--forest-900);font-weight:600;">${escapeHtml(file.name)} uploaded and ready for listing!</span>`;
+      uploadStatus.innerHTML = `${icon('check-circle')} <span style="color:var(--forest-900);font-weight:600;">${escapeHtml(file.name)} (${dimensions.width} × ${dimensions.height}px) meets the ${escapeHtml(profile.key)} image rules.</span>`;
     }
     showNotice('Product image uploaded successfully!', 'success');
   } catch (err) {
@@ -5233,6 +5329,7 @@ document.addEventListener('submit', async (event) => {
     const fullName = form.elements.fullName.value.trim();
     const businessName = form.elements.businessName.value.trim();
     const description = form.elements.description.value.trim();
+    const careInstructions = form.elements.careInstructions?.value.trim() || '';
     const contactEmail = form.elements.contactEmail.value.trim();
     const contactPhone = form.elements.contactPhone.value.trim();
     const stateVal = form.elements.state.value;
@@ -5367,12 +5464,13 @@ document.addEventListener('submit', async (event) => {
     const bullet1 = form.elements.bullet1?.value.trim() || '';
     const bullet2 = form.elements.bullet2?.value.trim() || '';
     const bullet3 = form.elements.bullet3?.value.trim() || '';
-    const weightKg = form.elements.weightKg?.value.trim() || '0.85';
-    const dimensionsCm = form.elements.dimensionsCm?.value.trim() || '33 × 21 × 12';
+    const weightKg = form.elements.weightKg?.value.trim() || '';
+    const dimensionsCm = form.elements.dimensionsCm?.value.trim() || '';
     const returnPolicy = form.elements.returnPolicy?.value || '7_day_escrow';
     const warranty = form.elements.warranty?.value || '30_days';
     const submitForReview = form.elements.submitForReview.checked;
     const variantMode = state.productDraft?.variantMode || 'single';
+    const categoryName = state.categories.find((category) => category.id === categoryId)?.name || '';
 
     const priceMinor = Math.round(priceNaira * 100);
     const comparePriceMinor = comparePriceNaira > 0 ? Math.round(comparePriceNaira * 100) : undefined;
@@ -5389,7 +5487,7 @@ document.addEventListener('submit', async (event) => {
           const matrixPriceMinor = Math.round(Number(priceInput?.value) * 100);
           return {
             sku: skuInput?.value.trim() || '',
-            title: `EU ${optionSize} / ${optionColor}`,
+            title: productVariantLabel(optionSize, optionColor, categoryName),
             optionSize,
             optionColor,
             priceMinor: matrixPriceMinor,
@@ -5405,7 +5503,7 @@ document.addEventListener('submit', async (event) => {
           lowStockThreshold,
         }];
 
-    if (!title || !brand || !categoryId || !Number.isFinite(weightKgNumber) || weightKgNumber <= 0 ||
+    if (!title || !brand || !categoryId || !Number.isFinite(weightKgNumber) || weightKgNumber <= 0 || !dimensionsCm ||
       !Number.isFinite(priceNaira) || !Number.isSafeInteger(priceMinor) || priceNaira <= 0 ||
       !description || (imageUrl ? !isMediaUrlValid(imageUrl) : submitForReview) || variants.length === 0 || variants.some((variant) =>
         !variant.sku || !Number.isSafeInteger(variant.priceMinor) || variant.priceMinor <= 0 ||
@@ -5423,6 +5521,7 @@ document.addEventListener('submit', async (event) => {
     const bulletsList = [bullet1, bullet2, bullet3].filter(Boolean);
     const formattedDescription = [
       description,
+      careInstructions ? `\n\nCare instructions:\n${careInstructions}` : '',
       bulletsList.length > 0 ? `\n\nKey Highlights:\n${bulletsList.map((b) => `• ${b}`).join('\n')}` : '',
       `\n\nProduct Specifications:\n• Brand: ${brand}\n• Condition: ${condition.replace('_', ' ')}\n• Tags: ${tags}\n• Weight: ${weightKg}kg\n• Dimensions: ${dimensionsCm}\n• Return Guarantee: ${returnPolicy.replace(/_/g, ' ')}\n• Warranty: ${warranty.replace(/_/g, ' ')}`,
     ].join('').trim();

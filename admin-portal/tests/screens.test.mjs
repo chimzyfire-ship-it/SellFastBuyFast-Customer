@@ -137,7 +137,7 @@ for (const [section, s] of Object.entries(contracts.SECTIONS)) {
     )
       tabs.push("notes");
     if (section === "support") tabs.push("conversation");
-    if (section === "catalogue") tabs.push("variants");
+    if (section === "catalogue") tabs.splice(0, tabs.length, "details");
     if (section === "orders") tabs.push("fulfilment");
     if (["refunds", "payouts", "reconciliation"].includes(section))
       tabs.push("ledger");

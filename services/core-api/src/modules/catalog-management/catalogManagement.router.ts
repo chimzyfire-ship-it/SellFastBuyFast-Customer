@@ -675,6 +675,8 @@ catalogManagementRouter.post(
         category: categoryRows[0] ?? null,
         variants,
         media,
+        weightKg: product.weightKg,
+        dimensionsCm: product.dimensionsCm,
       });
       const [updated] = await tx.update(products).set({ status: 'pending_approval', updatedAt: new Date() })
         .where(eq(products.id, product.id)).returning();

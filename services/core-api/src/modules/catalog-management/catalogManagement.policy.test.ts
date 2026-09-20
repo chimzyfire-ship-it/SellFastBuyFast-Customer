@@ -20,6 +20,8 @@ test('requires complete submission data and only remoderates listing-affecting e
     category: { isActive: true, parentId: null },
     variants: [{ sku: 'SFBF-OXFORD-42', priceMinor: 4_500_000 }],
     media: [{ mediaType: 'image' }],
+    weightKg: 0.85,
+    dimensionsCm: '33 × 21 × 12',
   }));
   assert.throws(
     () => assertProductReadyForSubmission({
@@ -27,6 +29,19 @@ test('requires complete submission data and only remoderates listing-affecting e
       category: { isActive: true, parentId: 'fashion-root' },
       variants: [{ sku: 'SFBF-OXFORD-42', priceMinor: 4_500_000 }],
       media: [{ mediaType: 'image' }],
+      weightKg: 0.85,
+      dimensionsCm: '33 × 21 × 12',
+    }),
+    (error) => error instanceof AppError && error.code === 'PRODUCT_INCOMPLETE'
+  );
+  assert.throws(
+    () => assertProductReadyForSubmission({
+      description: 'Handcrafted leather Oxford shoes with cushioned insoles.',
+      category: { isActive: true, parentId: null },
+      variants: [{ sku: 'SFBF-OXFORD-42', priceMinor: 4_500_000 }],
+      media: [{ mediaType: 'image' }],
+      weightKg: 0.85,
+      dimensionsCm: '',
     }),
     (error) => error instanceof AppError && error.code === 'PRODUCT_INCOMPLETE'
   );
@@ -72,4 +87,3 @@ test('enforces safe media types and 5MB size limits for product uploads', async 
   assert.equal(extensionForMediaContentType('image/webp'), 'webp');
   assert.equal(extensionForMediaContentType('other'), 'jpg');
 });
-
