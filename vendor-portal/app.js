@@ -1224,11 +1224,7 @@ function renderCatalogueView() {
               <button class="btn btn-primary btn-sm" type="button" data-action="submit-product" data-product-id="${escapeAttribute(product.id)}" ${catalogueEnabled ? '' : 'disabled'} title="Submit for Operations moderation">
                 ${icon('send')} Submit
               </button>
-            ` : `
-              <button class="btn btn-quiet btn-sm" type="button" data-action="toggle-product-status" data-product-id="${escapeAttribute(product.id)}" title="${product.status === 'published' ? 'Pause listing (unpublish)' : 'Republish listing live'}">
-                ${icon(product.status === 'published' ? 'pause-circle' : 'play-circle')}
-              </button>
-            `}
+            ` : ''}
             <button class="btn btn-quiet btn-sm danger-hover" type="button" data-action="delete-product" data-product-id="${escapeAttribute(product.id)}" title="Delete item">
               ${icon('trash-2')}
             </button>
@@ -1422,7 +1418,7 @@ function renderAddProductView() {
   const bullet2 = draft.bullet2 || 'Cushioned Memory Foam Insole with Anti-Skid Rubber Sole';
   const bullet3 = draft.bullet3 || 'Reinforced Goodyear Welted Construction for Longevity';
   const defaultProductCover = 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80';
-  const imageUrl = draft.imageUrl || defaultProductCover;
+  const imageUrl = draft.imageUrl || '';
   const weightKg = draft.weightKg || '0.85';
   const dimensionsCm = draft.dimensionsCm || '33 × 21 × 12';
   const returnPolicy = draft.returnPolicy || '7_day_escrow';
@@ -1618,7 +1614,7 @@ function renderAddProductView() {
                 <div style="margin-top:10px;padding:12px;background:var(--page-subtle);border-radius:var(--radius-xs);border:1px solid var(--border-light);">
                   <div class="form-group" style="margin-bottom:8px;">
                     <label class="form-label" for="prod-image">Verified Image CDN URL</label>
-                    <input class="input" id="prod-image" name="imageUrl" type="url" placeholder="https://your-image-host.example/photo.jpg" value="${escapeAttribute(imageUrl)}" required />
+                    <input class="input" id="prod-image" name="imageUrl" type="url" placeholder="https://your-image-host.example/photo.jpg" value="${escapeAttribute(imageUrl)}" />
                   </div>
                   <div class="image-preset-pills">
                     <span style="font-size:11.5px;color:var(--ink-muted);margin-right:2px;">Sample Presets:</span>
@@ -1896,10 +1892,10 @@ function renderAddProductView() {
                 </button>
               </div>
               <div style="display:flex;gap:10px;">
-                <button class="btn btn-secondary" type="button" data-action="save-as-draft" ${state.busy === 'create-product' || !canCreate ? 'disabled' : ''}>
+                <button class="btn btn-secondary" type="button" data-action="save-as-draft" ${state.busy || state.isUploadingProductImage || !canCreate ? 'disabled' : ''}>
                   ${icon('file-text')} Save as Draft
                 </button>
-                <button class="btn btn-primary" type="submit" ${state.busy === 'create-product' || !canCreate ? 'disabled' : ''}>
+                <button class="btn btn-primary" type="submit" ${state.busy || state.isUploadingProductImage || !canCreate ? 'disabled' : ''}>
                   ${state.busy === 'create-product' ? 'Saving…' : `${icon('send')} ${isEditing ? 'Save Changes' : (submitForReview ? 'Submit for Review' : 'Save Product')}`}
                 </button>
               </div>
@@ -3990,18 +3986,6 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (action === 'toggle-product-status') {
-    const productId = button.dataset.productId;
-    const prod = state.products.find((p) => p.id === productId);
-    if (prod) {
-      const newStatus = prod.status === 'published' ? 'draft' : 'published';
-      prod.status = newStatus;
-      render();
-      showNotice(newStatus === 'published' ? `"${prod.title}" is now published live.` : `"${prod.title}" paused and moved to drafts.`);
-    }
-    return;
-  }
-
   if (action === 'delete-product') {
     const productId = button.dataset.productId;
     state.modal = { type: 'delete-product-confirm', productId };
@@ -4212,7 +4196,7 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'trigger-product-image-upload') {
     const fileInput = document.getElementById('prod-image-file');
-    if (fileInput) fileInput.click();
+    if (fileInput && !state.isUploadingProductImage && !state.busy) fileInput.click();
     return;
   }
 
@@ -4379,67 +4363,12 @@ document.addEventListener('click', async (event) => {
   }
 
   if (action === 'save-as-draft') {
+    if (state.isUploadingProductImage || state.busy) return;
     const form = document.getElementById('product-form');
     if (!form) return;
-    const title = form.elements.title?.value.trim() || (state.productDraft?.title || 'Draft Product');
-    const categoryId = form.elements.categoryId?.value || (state.categories[0]?.id || 'cat-apparel');
-    const brand = form.elements.brand?.value.trim() || 'SellFast Signature';
-    const condition = form.elements.condition?.value || 'brand_new';
-    const tags = form.elements.tags?.value.trim() || '';
-    const sku = form.elements.sku?.value.trim() || `SFBF-DRAFT-${Math.floor(1000 + Math.random() * 9000)}`;
-    const priceNaira = Number(form.elements.priceNaira?.value) || 0;
-    const comparePriceNaira = Number(form.elements.comparePriceNaira?.value) || 0;
-    const availableQuantity = Number(form.elements.availableQuantity?.value) || 0;
-    const description = form.elements.description?.value.trim() || 'Product specifications pending completion.';
-    const imageUrl = form.elements.imageUrl?.value.trim() || 'assets/product-sneakers-arch.jpg';
-    const weightKg = form.elements.weightKg?.value.trim() || '0.85';
-    const dimensionsCm = form.elements.dimensionsCm?.value.trim() || '33 × 21 × 12';
-    const returnPolicy = form.elements.returnPolicy?.value || '7_day_escrow';
-    const warranty = form.elements.warranty?.value || '30_days';
-
-    const draftProd = {
-      id: state.editingProductId || `draft-prod-${Date.now()}`,
-      title,
-      categoryId,
-      brand,
-      condition,
-      sku,
-      status: 'draft',
-      priceMinor: Math.round(priceNaira * 100),
-      comparePriceMinor: comparePriceNaira > 0 ? Math.round(comparePriceNaira * 100) : null,
-      availableQuantity,
-      description,
-      imageUrl,
-      weightKg: Number(weightKg) || 0.85,
-      dimensionsCm,
-      returnPolicy,
-      warranty,
-      media: [{ mediaType: 'image', mediaUrl: imageUrl }],
-      variants: [{
-        sku,
-        title: 'Default',
-        priceMinor: Math.round(priceNaira * 100),
-        availableQuantity,
-      }],
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (state.editingProductId) {
-      const idx = state.products.findIndex((p) => p.id === state.editingProductId);
-      if (idx !== -1) {
-        state.products[idx] = { ...state.products[idx], ...draftProd };
-      }
-    } else {
-      state.products.unshift(draftProd);
-    }
-
-    state.editingProductId = null;
-    state.productDraft = null;
-    state.formError = '';
-    state.activeView = 'catalogue';
-    state.catalogueFilter = 'draft';
-    render();
-    showNotice('Product specifications saved as draft. Found under Drafts in Catalogue.');
+    form.elements.submitForReview.checked = false;
+    state.productDraft = { ...state.productDraft, submitForReview: false };
+    form.requestSubmit();
     return;
   }
 
@@ -4691,6 +4620,10 @@ document.addEventListener('click', async (event) => {
 
 // Search & Live Studio Input Handler
 document.addEventListener('input', (event) => {
+  if (event.target.form?.id === 'product-form' && event.target.name && event.target.type !== 'file') {
+    state.productDraft ||= {};
+    state.productDraft[event.target.name] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+  }
   if (event.target.id === 'catalogue-search') {
     state.catalogueSearch = event.target.value.trim().toLowerCase();
     document.querySelectorAll('[data-product-row]').forEach((row) => {
@@ -4942,7 +4875,7 @@ document.addEventListener('change', (event) => {
 });
 
 async function uploadProductMediaImage(file) {
-  if (!file) return;
+  if (!file || state.isUploadingProductImage || state.busy) return;
   const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
   const maxBytes = 5 * 1024 * 1024;
   if (!allowedTypes.includes(file.type)) {
@@ -4965,15 +4898,14 @@ async function uploadProductMediaImage(file) {
     return;
   }
 
+  const merchantId = state.merchant.id;
+  const draft = state.productDraft ||= {};
   const uploadBtn = document.querySelector('[data-action="trigger-product-image-upload"]');
   const uploadStatus = document.getElementById('prod-image-upload-status');
-  const imgInput = document.getElementById('prod-image');
-  const thumbPreview = document.getElementById('cover-thumb-preview');
-  const cardMockImg = document.getElementById('preview-card-img') || document.getElementById('mockup-cover-img');
-  const detailMockImg = document.getElementById('detail-hero-img') || document.getElementById('mockup-detail-img');
 
   try {
     state.isUploadingProductImage = true;
+    document.querySelectorAll('#product-form button[type="submit"], #product-form [data-action="save-as-draft"]').forEach((button) => { button.disabled = true; });
     if (uploadBtn) {
       uploadBtn.disabled = true;
       uploadBtn.innerHTML = `Uploading image...`;
@@ -4984,7 +4916,7 @@ async function uploadProductMediaImage(file) {
     }
 
     // Step 1: Request signed upload URL from Core API
-    const uploadRes = await api(`/v1/catalog-management/merchant/${state.merchant.id}/media/upload-url`, {
+    const uploadRes = await api(`/v1/catalog-management/merchant/${merchantId}/media/upload-url`, {
       method: 'POST',
       idempotencyScope: 'catalog-media-upload',
       body: {
@@ -4994,36 +4926,24 @@ async function uploadProductMediaImage(file) {
       },
     });
 
-    if (!uploadRes?.signedUrl || !uploadRes?.publicUrl) {
+    if (!uploadRes?.path || !uploadRes?.token || !uploadRes?.publicUrl) {
       throw new Error('Failed to obtain a secure product media upload URL.');
     }
 
-    // Step 2: Upload file binary directly to signed URL
-    let uploaded = false;
-    if (state.client?.storage && uploadRes.path && uploadRes.token) {
-      const { error: uploadErr } = await state.client.storage
-        .from('product-media')
-        .uploadToSignedUrl(uploadRes.path, uploadRes.token, file, {
-          contentType: file.type,
-        });
-      if (!uploadErr) {
-        uploaded = true;
-      }
-    }
-
-    if (!uploaded) {
-      const putRes = await fetch(uploadRes.signedUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      });
-      if (!putRes.ok) {
-        throw new Error('Failed to upload image binary to storage provider.');
-      }
-    }
+    // Use the storage SDK so multipart encoding and signed-token headers are correct.
+    const { error: uploadError } = await state.client.storage
+      .from('product-media')
+      .uploadToSignedUrl(uploadRes.path, uploadRes.token, file, { contentType: file.type });
+    if (uploadError) throw new Error(`Photo upload failed: ${uploadError.message}`);
 
     // Step 3: Populate imageUrl input and preview thumbnails
     const publicUrl = uploadRes.publicUrl;
+    if (state.merchant?.id !== merchantId || state.productDraft !== draft) return;
+    draft.imageUrl = publicUrl;
+    const imgInput = document.getElementById('prod-image');
+    const thumbPreview = document.getElementById('cover-thumb-preview');
+    const cardMockImg = document.getElementById('preview-card-img') || document.getElementById('mockup-cover-img');
+    const detailMockImg = document.getElementById('detail-hero-img') || document.getElementById('mockup-detail-img');
     if (imgInput) {
       imgInput.value = publicUrl;
       imgInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -5050,6 +4970,9 @@ async function uploadProductMediaImage(file) {
     showNotice(err.message || 'Image upload failed. Please verify your connection and try again.', 'error');
   } finally {
     state.isUploadingProductImage = false;
+    const fileInput = document.getElementById('prod-image-file');
+    if (fileInput) fileInput.value = '';
+    document.querySelectorAll('#product-form button[type="submit"], #product-form [data-action="save-as-draft"]').forEach((button) => { button.disabled = Boolean(state.busy); });
     if (uploadBtn) {
       uploadBtn.disabled = false;
       uploadBtn.innerHTML = `${icon('upload')} Choose Image from Device or Gallery`;
@@ -5421,6 +5344,11 @@ document.addEventListener('submit', async (event) => {
 
   // Product Studio Form (Create or Edit)
   if (form.id === 'product-form') {
+    if (state.isUploadingProductImage || state.busy) {
+      showNotice('Please wait for the current upload or save to finish.', 'error');
+      return;
+    }
+    state.productDraft = { ...state.productDraft, ...Object.fromEntries(new FormData(form)), submitForReview: form.elements.submitForReview.checked };
     const title = form.elements.title.value.trim();
     const categoryId = form.elements.categoryId.value;
     const brand = form.elements.brand?.value.trim() || 'SellFast Signature';
@@ -5479,11 +5407,11 @@ document.addEventListener('submit', async (event) => {
 
     if (!title || !brand || !categoryId || !Number.isFinite(weightKgNumber) || weightKgNumber <= 0 ||
       !Number.isFinite(priceNaira) || !Number.isSafeInteger(priceMinor) || priceNaira <= 0 ||
-      !description || !isMediaUrlValid(imageUrl) || variants.length === 0 || variants.some((variant) =>
+      !description || (imageUrl ? !isMediaUrlValid(imageUrl) : submitForReview) || variants.length === 0 || variants.some((variant) =>
         !variant.sku || !Number.isSafeInteger(variant.priceMinor) || variant.priceMinor <= 0 ||
         !Number.isSafeInteger(variant.availableQuantity) || variant.availableQuantity < 0
       )) {
-      if (!isMediaUrlValid(imageUrl)) {
+      if (imageUrl ? !isMediaUrlValid(imageUrl) : submitForReview) {
         state.formError = 'Please upload a product photo from your device or gallery, or provide a valid image URL.';
       } else {
         state.formError = 'Please fill in all required product specification fields with valid data.';
@@ -5550,7 +5478,7 @@ document.addEventListener('submit', async (event) => {
               ]);
             }));
           }
-          const mediaUpdate = imageMedia?.id
+          const mediaUpdate = !imageUrl ? null : imageMedia?.id
             ? await api(`/v1/catalog-management/media/${imageMedia.id}`, {
                 method: 'PATCH',
                 idempotencyScope: 'catalog-media-update',
@@ -5597,9 +5525,11 @@ document.addEventListener('submit', async (event) => {
             warranty,
             tags: tagList,
             variants,
-            media: [{ mediaUrl: imageUrl, mediaType: 'image', altText: title, sortOrder: 0 }],
+            media: imageUrl ? [{ mediaUrl: imageUrl, mediaType: 'image', altText: title, sortOrder: 0 }] : [],
           },
         });
+        state.editingProductId = created.id;
+        state.products = [...state.products.filter((product) => product.id !== created.id), created];
         if (submitForReview && created?.id) {
           await api(`/v1/catalog-management/products/${created.id}/submit`, {
             method: 'POST',
