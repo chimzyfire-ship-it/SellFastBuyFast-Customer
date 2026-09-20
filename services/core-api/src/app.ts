@@ -90,6 +90,7 @@ export function createApp(): Express {
       timestamp: new Date().toISOString(),
       service: "@sellfastbuyfast/core-api",
       version: "1.0.0",
+      capabilities: { productMediaUpload: true, catalogModeration: true },
     });
   });
 
