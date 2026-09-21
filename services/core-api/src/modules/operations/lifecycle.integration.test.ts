@@ -224,6 +224,30 @@ test("Non-payment purchase lifecycle through real SQL and HTTP", async (t) => {
       const changed = await request(`/v1/catalog-management/media/${mediaId}`, merchantUser, 'PATCH', {mediaUrl: imageUrl + '?replacement=1'});
       assert.equal(changed.status, 200, JSON.stringify(changed.body));
       assert.equal(await visible(), undefined, 'Replacing approved media requires another review');
+
+      // A moderator comment is guidance, not a vendor-side submission lock.
+      // The same rejected listing can return to the queue unchanged, and only
+      // a subsequent moderator publish makes it visible to shoppers.
+      assert.equal((await request(root + '/submit', merchantUser, 'POST', {})).status, 200);
+      const rejectionDetail = await request(`/v1/admin/catalogue/${productId}`, moderator);
+      const rejected = await request(root + '/moderate', moderator, 'POST', {decision: 'reject', note: 'work on this'}, id(), {'If-Match': String(rejectionDetail.body.data.record.version)});
+      assert.equal(rejected.status, 200, JSON.stringify(rejected.body));
+      assert.equal(await visible(), undefined, 'Rejected listings never appear to shoppers');
+      const unchanged = await request(root, merchantUser, 'PATCH', {
+        title: 'Vendor photo listing',
+        description: 'A complete product description for moderation.',
+        categoryId: category,
+        weightKg: 0.85,
+        dimensionsCm: '33 × 21 × 12',
+      });
+      assert.equal(unchanged.status, 200, JSON.stringify(unchanged.body));
+      assert.equal(unchanged.body.data.status, 'draft');
+      assert.equal((await request(root + '/submit', merchantUser, 'POST', {})).status, 200);
+      assert.ok((await request('/v1/catalog-management/moderation/queue', moderator)).body.data.some((p: any) => p.id === productId));
+      const resubmissionDetail = await request(`/v1/admin/catalogue/${productId}`, moderator);
+      const republished = await request(root + '/moderate', moderator, 'POST', {decision: 'publish', note: 'Approved after review.'}, id(), {'If-Match': String(resubmissionDetail.body.data.record.version)});
+      assert.equal(republished.status, 200, JSON.stringify(republished.body));
+      assert.ok(await visible(), 'Only an explicit moderator approval makes the resubmitted listing visible');
     });
     await t.test('Safari no-store preflight permits its browser-added cache headers', async () => {
       const response = await fetch(base + '/v1/admin/me', {

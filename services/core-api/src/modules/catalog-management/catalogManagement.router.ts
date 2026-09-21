@@ -43,11 +43,14 @@ const TagsSchema = z.array(z.string().trim().min(1).max(60)).max(20)
 const WeightKgSchema = z.number().finite().positive().max(9_999.99);
 
 const VariantSchema = z.object({
-  sku: z.string().trim().min(2).max(80).optional(),
+  // A listing may be sent to moderation with an incomplete merchant SKU. The
+  // moderator, rather than a browser-side length rule, decides whether that
+  // listing is publishable.
+  sku: z.string().trim().max(80).optional().transform((sku) => sku || undefined),
   title: z.string().trim().min(1).max(120).default('Default'),
   optionSize: z.string().trim().min(1).max(20).optional(),
   optionColor: z.string().trim().min(1).max(30).optional(),
-  priceMinor: z.number().int().positive().safe(),
+  priceMinor: z.number().int().nonnegative().safe(),
   attributes: z.record(z.unknown()).default({}),
   availableQuantity: z.number().int().min(0).max(1_000_000).default(0),
   lowStockThreshold: z.number().int().min(0).max(100_000).default(3),
@@ -62,45 +65,40 @@ const MediaSchema = z.object({
 const CreateProductSchema = z.object({
   categoryId: z.string().uuid().optional(),
   brandId: z.string().uuid().optional(),
-  title: z.string().trim().min(3).max(180),
-  brand: z.string().trim().min(2).max(100).default('SellFast Signature'),
+  title: z.string().trim().min(1).max(180),
+  brand: z.string().trim().min(1).max(100).default('SellFast Signature'),
   condition: ConditionSchema.default('brand_new'),
-  description: z.string().trim().min(10).max(10_000),
-  comparePriceMinor: z.number().int().positive().safe().optional(),
+  description: z.string().trim().max(10_000),
+  comparePriceMinor: z.number().int().nonnegative().safe().optional(),
   weightKg: WeightKgSchema.default(0.85),
-  dimensionsCm: z.string().trim().min(3).max(60).default('33 × 21 × 12'),
+  dimensionsCm: z.string().trim().min(1).max(60).default('33 × 21 × 12'),
   returnPolicy: ReturnPolicySchema.default('7_day_escrow'),
   warranty: WarrantySchema.default('30_days'),
   tags: TagsSchema.default([]),
   variants: z.array(VariantSchema).min(1).max(100),
   media: z.array(MediaSchema).max(30).default([]),
-}).superRefine((value, ctx) => {
-  const base = Math.min(...value.variants.map((variant) => variant.priceMinor));
-  if (value.comparePriceMinor !== undefined && value.comparePriceMinor <= base) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['comparePriceMinor'], message: 'Compare price must exceed the lowest variant price.' });
-  }
 });
 const UpdateProductSchema = z.object({
   categoryId: z.string().uuid().nullable().optional(),
   brandId: z.string().uuid().nullable().optional(),
-  title: z.string().trim().min(3).max(180).optional(),
-  brand: z.string().trim().min(2).max(100).optional(),
+  title: z.string().trim().min(1).max(180).optional(),
+  brand: z.string().trim().min(1).max(100).optional(),
   condition: ConditionSchema.optional(),
-  description: z.string().trim().min(10).max(10_000).optional(),
-  comparePriceMinor: z.number().int().positive().safe().nullable().optional(),
+  description: z.string().trim().max(10_000).optional(),
+  comparePriceMinor: z.number().int().nonnegative().safe().nullable().optional(),
   weightKg: WeightKgSchema.optional(),
-  dimensionsCm: z.string().trim().min(3).max(60).optional(),
+  dimensionsCm: z.string().trim().min(1).max(60).optional(),
   returnPolicy: ReturnPolicySchema.optional(),
   warranty: WarrantySchema.optional(),
   tags: TagsSchema.optional(),
 }).refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 const UpdateVariantSchema = z.object({
-  sku: z.string().trim().min(2).max(80).optional(),
+  sku: z.string().trim().max(80).optional().transform((sku) => sku || undefined),
   title: z.string().trim().min(1).max(120).optional(),
   optionSize: z.string().trim().min(1).max(20).nullable().optional(),
   optionColor: z.string().trim().min(1).max(30).nullable().optional(),
   attributes: z.record(z.unknown()).optional(),
-  priceMinor: z.number().int().positive().safe().optional(),
+  priceMinor: z.number().int().nonnegative().safe().optional(),
 }).refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 const UpdateMediaSchema = z.object({
   mediaUrl: z.string().url().max(2_000).optional(),
@@ -247,7 +245,12 @@ catalogManagementRouter.post(
           slug: slugFor(parsed.data.title),
           description: parsed.data.description,
           basePriceMinor,
-          comparePriceMinor: parsed.data.comparePriceMinor,
+          // Keep the database's compare-price constraint intact. A malformed
+          // optional compare price should not prevent Operations from seeing
+          // the submission; it is omitted for the moderator to correct.
+          comparePriceMinor: parsed.data.comparePriceMinor && parsed.data.comparePriceMinor > basePriceMinor
+            ? parsed.data.comparePriceMinor
+            : undefined,
           weightKg: parsed.data.weightKg.toFixed(2),
           dimensionsCm: parsed.data.dimensionsCm,
           returnPolicy: parsed.data.returnPolicy,
@@ -525,18 +528,19 @@ catalogManagementRouter.patch(
           .where(eq(brands.id, parsed.data.brandId)).limit(1);
         if (!brand) throw errors.validation('Brand does not exist.');
       }
-      if (
-        parsed.data.comparePriceMinor !== undefined &&
-        parsed.data.comparePriceMinor !== null &&
-        parsed.data.comparePriceMinor <= product.basePriceMinor
-      ) {
-        throw errors.validation('Compare price must exceed the current base price.');
-      }
-      const { weightKg, ...productPatch } = parsed.data;
+      const { weightKg, comparePriceMinor, ...productPatch } = parsed.data;
+      // An optional crossed-out price must not prevent a rejected listing from
+      // returning to moderation. Preserve the database constraint by clearing
+      // an invalid optional comparison, while retaining the actual sale price
+      // and every other vendor-provided field for Operations to review.
+      const validComparePriceMinor = comparePriceMinor !== undefined && comparePriceMinor !== null && comparePriceMinor > product.basePriceMinor
+        ? comparePriceMinor
+        : null;
       const returnedToDraft = product.status === 'rejected' ||
         (product.status === 'published' && requiresRemoderation(parsed.data));
       const [saved] = await tx.update(products).set({
         ...productPatch,
+        ...(comparePriceMinor === undefined ? {} : { comparePriceMinor: validComparePriceMinor }),
         ...(weightKg === undefined ? {} : { weightKg: weightKg.toFixed(2) }),
         status: returnedToDraft ? 'draft' : product.status,
         rejectionReason: returnedToDraft ? null : product.rejectionReason,
@@ -801,7 +805,7 @@ catalogManagementRouter.post(
           title: parsed.data.decision === 'publish' ? 'Product published' : 'Product needs changes',
           body: parsed.data.decision === 'publish'
             ? `“${updated.title}” is now visible to shoppers.`
-            : `“${updated.title}” was rejected: ${parsed.data.note}. Correct the listing to return it to draft, then submit it again.`,
+            : `“${updated.title}” was rejected: ${parsed.data.note}. You may revise it or resubmit it unchanged for another review.`,
           data: { productId: updated.id, decision: parsed.data.decision },
         });
         return updated;
