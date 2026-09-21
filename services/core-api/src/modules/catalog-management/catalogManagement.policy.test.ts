@@ -14,7 +14,7 @@ test('allows merchant submission and moderator decisions', () => {
   assert.doesNotThrow(() => assertProductTransition('rejected', 'draft'));
 });
 
-test('requires complete submission data and only remoderates listing-affecting edits', () => {
+test('allows Operations to review incomplete submissions and remoderates listing-affecting edits', () => {
   assert.doesNotThrow(() => assertProductReadyForSubmission({
     description: 'Handcrafted leather Oxford shoes with cushioned insoles.',
     category: { isActive: true, parentId: null },
@@ -23,28 +23,14 @@ test('requires complete submission data and only remoderates listing-affecting e
     weightKg: 0.85,
     dimensionsCm: '33 × 21 × 12',
   }));
-  assert.throws(
-    () => assertProductReadyForSubmission({
-      description: 'Too short',
-      category: { isActive: true, parentId: 'fashion-root' },
-      variants: [{ sku: 'SFBF-OXFORD-42', priceMinor: 4_500_000 }],
-      media: [{ mediaType: 'image' }],
-      weightKg: 0.85,
-      dimensionsCm: '33 × 21 × 12',
-    }),
-    (error) => error instanceof AppError && error.code === 'PRODUCT_INCOMPLETE'
-  );
-  assert.throws(
-    () => assertProductReadyForSubmission({
-      description: 'Handcrafted leather Oxford shoes with cushioned insoles.',
-      category: { isActive: true, parentId: null },
-      variants: [{ sku: 'SFBF-OXFORD-42', priceMinor: 4_500_000 }],
-      media: [{ mediaType: 'image' }],
-      weightKg: 0.85,
-      dimensionsCm: '',
-    }),
-    (error) => error instanceof AppError && error.code === 'PRODUCT_INCOMPLETE'
-  );
+  assert.doesNotThrow(() => assertProductReadyForSubmission({
+    description: 'Too short',
+    category: null,
+    variants: [{ sku: null, priceMinor: 0 }],
+    media: [],
+    weightKg: 0,
+    dimensionsCm: '',
+  }));
   assert.equal(requiresRemoderation({ comparePriceMinor: 5_500_000 } as any), false);
   assert.equal(requiresRemoderation({ title: 'Updated product title' }), true);
   assert.equal(requiresRemoderation({ condition: 'open_box' }), true);

@@ -61,19 +61,10 @@ export function assertProductReadyForSubmission(input: {
   weightKg: unknown;
   dimensionsCm: string | null;
 }): void {
-  if (!input.description || input.description.trim().length < 20) {
-    throw errors.conflict('PRODUCT_INCOMPLETE', 'A product description of at least 20 characters is required.');
-  }
-  if (!input.category?.isActive) {
-    throw errors.conflict('PRODUCT_INCOMPLETE', 'An active category is required.');
-  }
-  if (!input.variants.some((variant) => Boolean(variant.sku?.trim()) && variant.priceMinor > 0)) {
-    throw errors.conflict('PRODUCT_INCOMPLETE', 'At least one priced product variant with an SKU is required.');
-  }
-  if (!input.media.some((media) => media.mediaType === 'image')) {
-    throw errors.conflict('PRODUCT_INCOMPLETE', 'At least one product image is required.');
-  }
-  if (!Number.isFinite(Number(input.weightKg)) || Number(input.weightKg) <= 0 || !input.dimensionsCm?.trim()) {
-    throw errors.conflict('PRODUCT_INCOMPLETE', 'Packed weight and size are required before submitting a listing.');
-  }
+  // Product Studio guidance (description length, SKU, media, dimensions and
+  // price) helps a merchant create a strong listing, but it must not block a
+  // vendor from placing a listing in the Operations review queue. Moderators
+  // make the publish/reject decision after seeing the original submission.
+  // The typed input is retained here as the explicit moderation contract.
+  void input;
 }

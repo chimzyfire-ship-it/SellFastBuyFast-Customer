@@ -54,6 +54,12 @@ const state = {
   productErrors: {},
   productDraft: null,
   notice: null,
+  notifications: [],
+  unreadNotificationsCount: 0,
+  notificationsOpen: false,
+  notificationsLoading: false,
+  notificationsChannel: null,
+  notificationsPollTimer: null,
   sidebarOpen: false,
   sidebarCollapsed: window.localStorage.getItem('sfbf-sidebar-collapsed') === 'true',
   showPassword: false,
@@ -156,15 +162,15 @@ function isMediaUrlValid(value) {
 function productCategoryProfile(categoryName = '') {
   const category = categoryName.toLowerCase();
   if (/fashion|clothing|footwear|shoe|apparel|jewell|bag/.test(category)) {
-    return { key: 'fashion', minWidth: 1200, minHeight: 1200, ratios: [1], label: 'Square (1:1), at least 1200 × 1200 px', detail: 'Show the full item on a clean background. Include every colour or size offered.' };
+    return { key: 'fashion', minWidth: 600, minHeight: 400, ratios: [1, 4 / 3, 3 / 2, 16 / 9, 3 / 4, 1200 / 796], label: 'Square, landscape (3:2, 4:3) or portrait, at least 600px', detail: 'Show the full item on a clean background. Include every colour or size offered.' };
   }
   if (/electronic|phone|computer|appliance|tech/.test(category)) {
-    return { key: 'electronics', minWidth: 1200, minHeight: 900, ratios: [1, 4 / 3, 3 / 4], label: 'Square or 4:3, at least 1200 × 900 px', detail: 'Show the item powered on where useful, plus ports, model details and accessories.' };
+    return { key: 'electronics', minWidth: 600, minHeight: 400, ratios: [1, 4 / 3, 3 / 2, 16 / 9, 3 / 4], label: 'Square, 4:3, or 16:9, at least 600px', detail: 'Show the item powered on where useful, plus ports, model details and accessories.' };
   }
   if (/beauty|health|food|grocery/.test(category)) {
-    return { key: 'consumables', minWidth: 1200, minHeight: 1200, ratios: [1], label: 'Square (1:1), at least 1200 × 1200 px', detail: 'Keep the label, size and expiry information clearly readable.' };
+    return { key: 'consumables', minWidth: 600, minHeight: 400, ratios: [1, 4 / 3, 3 / 2, 3 / 4], label: 'Square or 4:3, at least 600px', detail: 'Keep the label, size and expiry information clearly readable.' };
   }
-  return { key: 'standard', minWidth: 1200, minHeight: 1200, ratios: [1], label: 'Square (1:1), at least 1200 × 1200 px', detail: 'Use a bright, sharp product photo on a clean background.' };
+  return { key: 'standard', minWidth: 600, minHeight: 400, ratios: [1, 4 / 3, 3 / 2, 16 / 9, 3 / 4], label: 'Square, landscape or portrait, at least 600px', detail: 'Use a bright, sharp product photo on a clean background.' };
 }
 
 function productOptionFields(profile) {
@@ -185,9 +191,14 @@ function currentProductCategoryProfile() {
 }
 
 function imageFitsProfile(width, height, profile) {
-  if (width < profile.minWidth || height < profile.minHeight) return false;
+  const minW = profile.minWidth || 400;
+  const minH = profile.minHeight || 400;
+  if (width < minW || height < minH) return false;
   const ratio = width / height;
-  return profile.ratios.some((expected) => Math.abs(ratio - expected) <= 0.015);
+  if (profile.ratios && profile.ratios.length > 0) {
+    if (profile.ratios.some((expected) => Math.abs(ratio - expected) <= 0.1)) return true;
+  }
+  return ratio >= 0.45 && ratio <= 2.2;
 }
 
 function imageDimensions(file) {
@@ -436,7 +447,23 @@ function statusBadge(status) {
     iconName = 'alert-circle';
   }
 
-  return `<span class="status-pill ${pillClass}">${icon(iconName)} ${escapeHtml(norm)}</span>`;
+  const label = norm === 'rejected' ? 'Needs Changes' : norm;
+  return `<span class="status-pill ${pillClass}">${icon(iconName)} ${escapeHtml(label)}</span>`;
+}
+
+function formatRelativeTime(value) {
+  if (!value) return '—';
+  const diff = Date.now() - new Date(value).getTime();
+  if (isNaN(diff)) return '—';
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return 'Just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const days = Math.floor(hr / 24);
+  if (days < 7) return `${days}d ago`;
+  return formatDate(value);
 }
 
 /* ==========================================================================
@@ -904,6 +931,66 @@ function navItem(view, iconName, label, badgeCount, badgeType = 'default') {
     </button>`;
 }
 
+function renderNotificationsDropdown() {
+  const notifs = state.notifications || [];
+  const unreadCount = state.unreadNotificationsCount || 0;
+
+  return `
+    <div class="notifications-dropdown-menu" role="dialog" aria-label="Notifications">
+      <div class="notifications-header">
+        <div class="notifications-header-title">
+          <strong>Notifications</strong>
+          ${unreadCount > 0 ? `<span class="notification-count-badge">${unreadCount} new</span>` : ''}
+        </div>
+        ${unreadCount > 0 ? `
+          <button class="btn-quiet btn-sm mark-read-btn" type="button" data-action="mark-all-notifications-read">
+            ${icon('check-check')} Mark all read
+          </button>
+        ` : ''}
+      </div>
+      <div class="notifications-list">
+        ${notifs.length ? notifs.map((n) => {
+          const isUnread = !n.readAt;
+          const isRejected = n.type === 'catalog_product_rejected';
+          const isPublished = n.type === 'catalog_product_published';
+          const productId = n.data?.productId;
+          const iconName = isRejected ? 'alert-triangle' : isPublished ? 'check-circle' : 'bell';
+          const iconColorClass = isRejected ? 'notif-icon-danger' : isPublished ? 'notif-icon-success' : 'notif-icon-info';
+
+          return `
+            <div class="notification-item ${isUnread ? 'unread' : ''} ${isRejected ? 'rejection-item' : ''}" data-action="read-notification" data-id="${escapeAttribute(n.id)}">
+              <div class="notification-icon-wrap ${iconColorClass}">
+                ${icon(iconName)}
+              </div>
+              <div class="notification-content">
+                <div class="notification-title-row">
+                  <strong class="notification-title">${escapeHtml(n.title || 'Notification')}</strong>
+                  <span class="notification-time">${formatRelativeTime(n.createdAt)}</span>
+                </div>
+                <p class="notification-body">${escapeHtml(n.body || '')}</p>
+                ${(isRejected && productId) ? `
+                  <div class="notification-action-row">
+                    <button class="btn btn-warning btn-sm" type="button" data-action="fix-and-resubmit" data-product-id="${escapeAttribute(productId)}">
+                      ${icon('refresh-cw')} Fix & Resubmit Listing
+                    </button>
+                  </div>
+                ` : ''}
+              </div>
+              ${isUnread ? '<span class="unread-dot" title="Unread"></span>' : ''}
+            </div>
+          `;
+        }).join('') : `
+          <div class="notifications-empty">
+            <div class="empty-icon">${icon('bell-off')}</div>
+            <p>No notifications yet</p>
+            <small class="muted">You'll receive live alerts when Operations reviews your products or updates occur.</small>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
 function renderShellHtml() {
   const overview = state.overview;
   const pendingFulfil = (overview?.fulfilment?.awaitingAcceptance ?? 0) + (overview?.fulfilment?.awaitingPacking ?? 0);
@@ -911,6 +998,9 @@ function renderShellHtml() {
   const verification = overview?.verification?.status ?? 'pending';
   const catalogueEnabled = (overview?.merchant?.status ?? state.merchant?.status) === 'active';
   const lowStockCount = state.products.filter((p) => (p.variants?.[0]?.availableQuantity ?? 0) <= 3).length;
+  const rejectedCount = state.products.filter((p) => p.status === 'rejected').length;
+  const catalogueBadge = rejectedCount > 0 ? `${rejectedCount} action` : (lowStockCount > 0 ? lowStockCount : undefined);
+  const catalogueBadgeType = rejectedCount > 0 ? 'warn' : (lowStockCount > 0 ? 'warn' : undefined);
 
   return `
     <div class="portal-shell">
@@ -934,7 +1024,7 @@ function renderShellHtml() {
             ${navItem('returns', 'rotate-ccw', 'Returns & Disputes', pendingReturns)}
 
             <div class="nav-section-label">Commerce</div>
-            ${navItem('catalogue', 'package', 'Catalogue & Stock', lowStockCount > 0 ? lowStockCount : undefined, 'warn')}
+            ${navItem('catalogue', 'package', 'Catalogue & Stock', catalogueBadge, catalogueBadgeType)}
             ${navItem('add-product', 'plus-circle', 'Product Studio')}
 
             <div class="nav-section-label">Finance & Settings</div>
@@ -979,6 +1069,15 @@ function renderShellHtml() {
             <button class="btn btn-quiet btn-sm" type="button" data-action="refresh-current" title="Refresh store data">
               ${icon('refresh-cw')} <span class="hide-mobile">Refresh</span>
             </button>
+            <div class="topbar-divider"></div>
+            <!-- Notification Bell with Unread Badge & Dropdown -->
+            <div class="notifications-dropdown-wrap">
+              <button class="btn btn-quiet btn-sm notification-bell-btn ${state.unreadNotificationsCount > 0 ? 'has-unread' : ''}" type="button" data-action="toggle-notifications" title="Notifications (${state.unreadNotificationsCount} unread)">
+                ${icon('bell')}
+                ${state.unreadNotificationsCount > 0 ? `<span class="notification-badge">${state.unreadNotificationsCount > 99 ? '99+' : state.unreadNotificationsCount}</span>` : ''}
+              </button>
+              ${state.notificationsOpen ? renderNotificationsDropdown() : ''}
+            </div>
             <div class="topbar-divider"></div>
             ${statusBadge(verification)}
             <button class="btn btn-primary btn-sm" type="button" data-action="new-product" ${catalogueEnabled ? '' : 'disabled'}>
@@ -1173,6 +1272,7 @@ function renderCatalogueView() {
   const totalCount = state.products.length;
   const publishedCount = state.products.filter((p) => p.status === 'published').length;
   const inReviewCount = state.products.filter((p) => p.status === 'pending_approval').length;
+  const rejectedCount = state.products.filter((p) => p.status === 'rejected').length;
   const draftCount = state.products.filter((p) => p.status === 'draft').length;
   const lowStockCount = state.products.filter((p) => (p.variants?.[0]?.availableQuantity ?? 0) <= 3).length;
   const totalUnits = state.products.reduce((s, p) => s + (p.variants?.[0]?.availableQuantity ?? 0), 0);
@@ -1180,6 +1280,7 @@ function renderCatalogueView() {
   let filtered = [...state.products];
   if (currentFilter === 'published') filtered = filtered.filter((p) => p.status === 'published');
   else if (currentFilter === 'in_review') filtered = filtered.filter((p) => p.status === 'pending_approval');
+  else if (currentFilter === 'rejected') filtered = filtered.filter((p) => p.status === 'rejected');
   else if (currentFilter === 'draft') filtered = filtered.filter((p) => p.status === 'draft');
   else if (currentFilter === 'low-stock') filtered = filtered.filter((p) => (p.variants?.[0]?.availableQuantity ?? 0) <= 3);
 
@@ -1245,6 +1346,11 @@ function renderCatalogueView() {
                 <span class="table-sku-badge">SKU: ${escapeHtml(variant?.sku || 'No SKU')}</span>
                 ${product.variants && product.variants.length > 1 ? `<span style="font-size:11px;color:var(--forest-800);font-weight:700;">${product.variants.length} variants</span>` : ''}
               </div>
+              ${product.status === 'rejected' && product.rejectionReason ? `
+                <div class="product-rejection-callout" data-action="fix-and-resubmit" data-product-id="${escapeAttribute(product.id)}" title="Click to fix and resubmit">
+                  ${icon('alert-triangle')} <strong>Operations Feedback:</strong> "${escapeHtml(product.rejectionReason)}"
+                </div>
+              ` : ''}
             </div>
           </div>
         </td>
@@ -1272,6 +1378,11 @@ function renderCatalogueView() {
             ${variant ? `
               <button class="btn btn-secondary btn-sm" type="button" data-action="edit-stock" data-variant-id="${escapeAttribute(variant.id)}" data-product-title="${escapeAttribute(product.title)}" data-sku="${escapeAttribute(variant.sku || '')}" data-quantity="${escapeAttribute(variant.availableQuantity)}" ${catalogueEnabled ? '' : 'disabled'} title="Adjust live available stock">
                 ${icon('sliders')} Stock
+              </button>
+            ` : ''}
+            ${product.status === 'rejected' ? `
+              <button class="btn btn-warning btn-sm" type="button" data-action="fix-and-resubmit" data-product-id="${escapeAttribute(product.id)}" title="Review feedback and resubmit listing for moderation">
+                ${icon('refresh-cw')} Fix & Resubmit
               </button>
             ` : ''}
             <button class="btn btn-secondary btn-sm" type="button" data-action="edit-product" data-product-id="${escapeAttribute(product.id)}" title="Edit in Product Studio">
@@ -1325,6 +1436,15 @@ function renderCatalogueView() {
           <div class="catalogue-kpi-label">Units in Stock</div>
         </div>
       </div>
+      ${rejectedCount > 0 ? `
+        <div class="catalogue-kpi-card ${currentFilter === 'rejected' ? 'active' : ''}" data-action="set-catalogue-filter" data-filter="rejected" title="Filter items requiring correction before publication" style="border-color:var(--rose-300);background:#fff9f9;">
+          <div class="catalogue-kpi-icon warn" style="color:var(--rose-600);background:var(--rose-50);">${icon('alert-triangle')}</div>
+          <div class="catalogue-kpi-content">
+            <div class="catalogue-kpi-val" style="color:var(--rose-600);">${rejectedCount}</div>
+            <div class="catalogue-kpi-label" style="color:var(--rose-700);font-weight:700;">Needs Changes</div>
+          </div>
+        </div>
+      ` : ''}
       <div class="catalogue-kpi-card ${currentFilter === 'low-stock' ? 'active' : ''}" data-action="set-catalogue-filter" data-filter="low-stock" title="Filter items low in stock (≤ 3 units)">
         <div class="catalogue-kpi-icon ${lowStockCount > 0 ? 'warn' : ''}">${icon('alert-triangle')}</div>
         <div class="catalogue-kpi-content">
@@ -1350,6 +1470,11 @@ function renderCatalogueView() {
         <button class="filter-pill ${currentFilter === 'published' ? 'active' : ''}" type="button" data-action="set-catalogue-filter" data-filter="published">
           Published <span class="filter-count">${publishedCount}</span>
         </button>
+        ${rejectedCount > 0 ? `
+          <button class="filter-pill ${currentFilter === 'rejected' ? 'active' : ''}" type="button" data-action="set-catalogue-filter" data-filter="rejected" style="border-color:var(--rose-600);color:var(--rose-700);">
+            Needs Changes <span class="filter-count danger">${rejectedCount}</span>
+          </button>
+        ` : ''}
         <button class="filter-pill ${currentFilter === 'low-stock' ? 'active' : ''}" type="button" data-action="set-catalogue-filter" data-filter="low-stock">
           Low Stock <span class="filter-count ${lowStockCount > 0 ? 'warn' : ''}">${lowStockCount}</span>
         </button>
@@ -1452,10 +1577,13 @@ function renderCatalogueView() {
 
 function renderAddProductView() {
   const categoryOptions = state.categories.map((c) => `<option value="${escapeAttribute(c.id)}">${escapeHtml(c.name)}</option>`).join('');
-  const catalogueEnabled = state.overview?.merchant?.status === 'active';
-  const canCreate = catalogueEnabled && state.categories.length > 0;
   const isEditing = Boolean(state.editingProductId);
+  const existingProduct = state.editingProductId ? state.products.find((p) => String(p.id) === String(state.editingProductId)) : null;
+  const isRejected = existingProduct?.status === 'rejected';
+  const catalogueEnabled = (state.overview?.merchant?.status ?? state.merchant?.status) === 'active';
+  const canCreate = (catalogueEnabled && state.categories.length > 0) || isEditing || isRejected;
   const draft = state.productDraft || {};
+  const rejectionReason = existingProduct?.rejectionReason || existingProduct?.rejection_reason || draft.rejectionReason || '';
 
   // Form values (default or editing)
   const title = draft.title || '';
@@ -1486,7 +1614,7 @@ function renderAddProductView() {
   const dimensionsCm = draft.dimensionsCm || '';
   const returnPolicy = draft.returnPolicy || '7_day_escrow';
   const warranty = draft.warranty || '30_days';
-  const submitForReview = draft.submitForReview !== false;
+  const submitForReview = isRejected ? true : (draft.submitForReview !== false);
   const previewMode = state.previewMode || 'card'; // 'card' | 'detail'
 
   // Live preview computations
@@ -1533,10 +1661,10 @@ function renderAddProductView() {
       <div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
           <span class="status-pill status-pill-success" style="font-size:11px;">${icon('layers')} Pro Marketplace Studio</span>
-          ${isEditing ? `<span class="status-pill status-pill-warning" style="font-size:11px;">${icon('edit-3')} Edit Mode</span>` : ''}
+          ${isRejected ? `<span class="status-pill status-pill-danger" style="font-size:11px;">${icon('alert-triangle')} Needs Changes</span>` : (isEditing ? `<span class="status-pill status-pill-warning" style="font-size:11px;">${icon('edit-3')} Edit Mode</span>` : '')}
         </div>
-        <h1 class="view-title">${isEditing ? 'Edit Product Listing' : 'Product Studio'}</h1>
-        <p class="view-subtitle">${isEditing ? 'Update specifications, pricing, media, or variant stock for this catalog listing.' : 'Create, refine, and publish enterprise-grade listings to the live SellFastBuyFast marketplace.'}</p>
+        <h1 class="view-title">${isRejected ? 'Fix & Resubmit Product' : (isEditing ? 'Edit Product Listing' : 'Product Studio')}</h1>
+        <p class="view-subtitle">${isRejected ? 'Address Operations moderation feedback below and resubmit your listing for marketplace approval.' : (isEditing ? 'Update specifications, pricing, media, or variant stock for this catalog listing.' : 'Create, refine, and publish enterprise-grade listings to the live SellFastBuyFast marketplace.')}</p>
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         ${isEditing ? `
@@ -1557,6 +1685,20 @@ function renderAddProductView() {
       <form id="product-form" novalidate style="display:flex;flex-direction:column;gap:0;">
         ${state.formError ? `<div class="error-summary" role="alert" style="margin-bottom:18px;">${icon('alert-circle')} <span>${escapeHtml(state.formError)}</span></div>` : ''}
 
+        ${isRejected && rejectionReason ? `
+          <div class="rejection-feedback-banner" role="alert" style="margin-bottom:20px;">
+            <div class="rejection-feedback-title">
+              ${icon('alert-triangle')} Changes Requested by Operations Moderation
+            </div>
+            <div class="rejection-feedback-note">
+              "${escapeHtml(rejectionReason)}"
+            </div>
+            <p class="rejection-feedback-hint">
+              You may update the listing using the feedback above, or resubmit it unchanged for another Operations review. This note does not block <strong>Resubmit for Moderation</strong> below.
+            </p>
+          </div>
+        ` : ''}
+
         <!-- Section 1: The essentials -->
         <div class="studio-section">
           <div class="studio-section-header">
@@ -1575,8 +1717,8 @@ function renderAddProductView() {
             <div class="grid-2col">
               <div class="form-group">
               <label class="form-label" for="prod-category">Choose a category</label>
-                <select class="select" id="prod-category" name="categoryId" required ${canCreate ? '' : 'disabled'}>
-                  <option value="">Select Category</option>
+                <select class="select" id="prod-category" name="categoryId" required ${state.categories.length === 0 ? 'disabled' : ''}>
+                  <option value="">${state.categories.length === 0 ? 'Loading categories…' : 'Select Category'}</option>
                   ${state.categories.map((c) => `<option value="${escapeAttribute(c.id)}" ${c.id === categoryId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
                 </select>
               </div>
@@ -1941,11 +2083,11 @@ function renderAddProductView() {
                 </button>
               </div>
               <div style="display:flex;gap:10px;">
-                <button class="btn btn-secondary" type="button" data-action="save-as-draft" ${state.busy || state.isUploadingProductImage || !canCreate ? 'disabled' : ''}>
+                <button class="btn btn-secondary" type="button" data-action="save-as-draft" ${state.busy || state.isUploadingProductImage ? 'disabled' : ''}>
                   ${icon('file-text')} Save as Draft
                 </button>
-                <button class="btn btn-primary" type="submit" ${state.busy || state.isUploadingProductImage || !canCreate ? 'disabled' : ''}>
-                  ${state.busy === 'create-product' ? 'Saving…' : `${icon('send')} ${isEditing ? 'Save Changes' : (submitForReview ? 'Submit for Review' : 'Save Product')}`}
+                <button class="btn btn-primary" type="submit" ${state.busy || state.isUploadingProductImage ? 'disabled' : ''}>
+                  ${state.busy === 'create-product' || state.busy === 'update-product' ? 'Saving…' : `${icon('send')} ${isRejected ? 'Resubmit for Moderation' : (isEditing ? 'Save Changes' : (submitForReview ? 'Submit for Review' : 'Save Product'))}`}
                 </button>
               </div>
             </div>
@@ -3641,6 +3783,159 @@ function requestErrorMessage(error, fallback = 'The request could not be complet
   return error.message || fallback;
 }
 
+let notificationChannel = null;
+let notificationPollInterval = null;
+
+function teardownNotificationsSync() {
+  if (notificationChannel) {
+    try {
+      state.client?.removeChannel?.(notificationChannel);
+    } catch (_) {}
+    notificationChannel = null;
+  }
+  if (notificationPollInterval) {
+    clearInterval(notificationPollInterval);
+    notificationPollInterval = null;
+  }
+}
+
+function setupNotificationsSync() {
+  if (!state.session?.user?.id) return;
+  const userId = state.session.user.id;
+
+  // Supabase Realtime channel for instant push on notifications table
+  if (state.client && !notificationChannel) {
+    try {
+      notificationChannel = state.client
+        .channel(`vendor-notifications:${userId}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        }, (payload) => {
+          const newNotif = payload.new;
+          if (newNotif) {
+            const formatted = {
+              id: newNotif.id,
+              userId: newNotif.user_id || newNotif.userId,
+              type: newNotif.type,
+              title: newNotif.title,
+              body: newNotif.body,
+              data: newNotif.data,
+              readAt: newNotif.read_at || newNotif.readAt,
+              createdAt: newNotif.created_at || newNotif.createdAt || new Date().toISOString(),
+            };
+            if (!state.notifications.some((n) => n.id === formatted.id)) {
+              state.notifications = [formatted, ...state.notifications];
+              state.unreadNotificationsCount = state.notifications.filter((n) => !n.readAt).length;
+              render();
+
+              const isRejection = formatted.type === 'catalog_product_rejected';
+              showNotice(
+                isRejection
+                  ? 'Moderation Notice: Changes requested for your listing.'
+                  : (formatted.title || 'New notification received.'),
+                isRejection ? 'error' : 'success'
+              );
+            }
+          }
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Realtime notifications subscription failed:', e);
+    }
+  }
+
+  // 15s polling fallback to guarantee notification delivery
+  if (!notificationPollInterval) {
+    notificationPollInterval = setInterval(async () => {
+      if (!state.session || !state.merchant || document.hidden) return;
+      try {
+        const notifs = await api('/v1/notifications');
+        if (Array.isArray(notifs)) {
+          const prevCount = state.unreadNotificationsCount;
+          state.notifications = notifs;
+          state.unreadNotificationsCount = notifs.filter((n) => !n.readAt).length;
+          if (state.unreadNotificationsCount > prevCount) {
+            render();
+          }
+        }
+      } catch {
+        // silent polling catch
+      }
+    }, 15000);
+  }
+}
+
+async function markNotificationAsRead(id) {
+  const notif = state.notifications.find((n) => n.id === id);
+  if (notif && !notif.readAt) {
+    notif.readAt = new Date().toISOString();
+    state.unreadNotificationsCount = state.notifications.filter((n) => !n.readAt).length;
+    render();
+    try {
+      await api(`/v1/notifications/${id}/read`, { method: 'PATCH' });
+    } catch (e) {
+      console.warn('Failed to mark notification read:', e);
+    }
+  }
+}
+
+async function markAllNotificationsAsRead() {
+  const hadUnread = state.unreadNotificationsCount > 0;
+  state.notifications.forEach((n) => { n.readAt = n.readAt || new Date().toISOString(); });
+  state.unreadNotificationsCount = 0;
+  render();
+  if (hadUnread) {
+    try {
+      await api('/v1/notifications/read-all', { method: 'POST' });
+    } catch (e) {
+      console.warn('Failed to mark all notifications read:', e);
+    }
+  }
+}
+
+function loadProductIntoStudio(prod, isFix = false) {
+  if (!prod) return;
+  const variant = prod.variants?.[0];
+  const media = prod.media?.find((m) => m.mediaType === 'image');
+  const isRejected = prod.status === 'rejected' || isFix;
+  state.editingProductId = prod.id;
+  state.productDraft = {
+    title: prod.title || '',
+    categoryId: prod.categoryId || '',
+    brand: prod.brand || 'SellFast Signature',
+    condition: prod.condition || 'brand_new',
+    tags: Array.isArray(prod.tags) ? prod.tags.join(', ') : '',
+    sku: variant?.sku || '',
+    priceNaira: variant ? String(Math.round(variant.priceMinor / 100)) : '',
+    comparePriceNaira: prod.comparePriceMinor ? String(Math.round(prod.comparePriceMinor / 100)) : '',
+    availableQuantity: variant ? String(variant.availableQuantity) : '10',
+    lowStockThreshold: variant ? String(variant.lowStockThreshold ?? 3) : '3',
+    variantMode: (prod.variants?.length ?? 0) > 1 ? 'variants' : 'single',
+    selectedSizes: [...new Set((prod.variants || []).map((item) => item.optionSize).filter(Boolean))],
+    selectedColors: [...new Set((prod.variants || []).map((item) => item.optionColor).filter(Boolean))],
+    variantMatrix: prod.variants || [],
+    description: prod.description || '',
+    imageUrl: media?.mediaUrl || '',
+    weightKg: prod.weightKg ? String(prod.weightKg) : '0.85',
+    dimensionsCm: prod.dimensionsCm || '33 × 21 × 12',
+    returnPolicy: prod.returnPolicy || '7_day_escrow',
+    warranty: prod.warranty || '30_days',
+    submitForReview: true,
+    rejectionReason: prod.rejectionReason || prod.rejection_reason || '',
+  };
+  state.activeView = 'add-product';
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (isRejected && (prod.rejectionReason || prod.rejection_reason)) {
+    showNotice(`Loaded "${prod.title}" into Product Studio with Operations feedback.`, 'success');
+  } else {
+    showNotice(`Loaded "${prod.title}" into Product Studio.`);
+  }
+}
+
 async function loadMerchantData() {
   if (!state.merchant) return;
   const requestVersion = ++state.dataRequestVersion;
@@ -3662,10 +3957,11 @@ async function loadMerchantData() {
       api(`/v1/fulfilment/merchant/${merchantId}/orders`, { signal: controller.signal }),
       api(`/v1/vendor/merchant/${merchantId}/returns`, { signal: controller.signal }),
       api('/v1/catalog/categories', { signal: controller.signal }),
+      api('/v1/notifications', { signal: controller.signal }),
     ]);
     if (requestVersion !== state.dataRequestVersion) return;
 
-    const [overview, products, orders, returns, categories] = results;
+    const [overview, products, orders, returns, categories, notificationsRes] = results;
     if (overview.status === 'fulfilled') {
       state.overview = overview.value;
       state.merchant = overview.value.merchant;
@@ -3677,6 +3973,11 @@ async function loadMerchantData() {
     if (orders.status === 'fulfilled') state.orders = orders.value;
     if (returns.status === 'fulfilled') state.returns = returns.value;
     if (categories.status === 'fulfilled') state.categories = categories.value;
+    if (notificationsRes && notificationsRes.status === 'fulfilled') {
+      const notifs = Array.isArray(notificationsRes.value) ? notificationsRes.value : (notificationsRes.value?.notifications || []);
+      state.notifications = notifs;
+      state.unreadNotificationsCount = notifs.filter((n) => !n.readAt).length;
+    }
 
     // Load server-side profile draft if merchant is not registered
     if (state.merchant?.registrationState === 'not_registered' && state.overview?.viewer?.canEditProfile) {
@@ -3718,6 +4019,7 @@ async function loadMerchantData() {
     if (requestVersion === state.dataRequestVersion) {
       state.loading = false;
       state.dataAbortController = null;
+      setupNotificationsSync();
       render();
     }
   }
@@ -3844,9 +4146,53 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  // Dismiss notifications dropdown when clicking outside
+  if (state.notificationsOpen && !event.target.closest('.notifications-dropdown-container')) {
+    state.notificationsOpen = false;
+    render();
+  }
+
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const action = button.dataset.action;
+
+  if (action === 'toggle-notifications') {
+    state.notificationsOpen = !state.notificationsOpen;
+    render();
+    return;
+  }
+
+  if (action === 'mark-all-notifications-read') {
+    await markAllNotificationsAsRead();
+    return;
+  }
+
+  if (action === 'read-notification') {
+    const notifId = button.dataset.id;
+    const notif = state.notifications.find((n) => n.id === notifId);
+    if (notif) {
+      await markNotificationAsRead(notifId);
+      const productId = notif.data?.productId || notif.data?.product_id;
+      if (productId) {
+        const prod = state.products.find((p) => String(p.id) === String(productId));
+        if (prod) {
+          state.notificationsOpen = false;
+          loadProductIntoStudio(prod, true);
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  if (action === 'fix-and-resubmit') {
+    const prodId = button.dataset.productId;
+    const prod = state.products.find((p) => String(p.id) === String(prodId));
+    if (prod) {
+      loadProductIntoStudio(prod, true);
+    }
+    return;
+  }
 
   if (action === 'toggle-sidebar') {
     state.sidebarOpen = !state.sidebarOpen;
@@ -4186,36 +4532,7 @@ document.addEventListener('click', async (event) => {
     const prodId = button.dataset.productId;
     const prod = state.products.find((p) => String(p.id) === String(prodId));
     if (prod) {
-      const variant = prod.variants?.[0];
-      const media = prod.media?.find((m) => m.mediaType === 'image');
-      state.editingProductId = prod.id;
-      state.productDraft = {
-        title: prod.title || '',
-        categoryId: prod.categoryId || '',
-        brand: prod.brand || 'SellFast Signature',
-        condition: prod.condition || 'brand_new',
-        tags: Array.isArray(prod.tags) ? prod.tags.join(', ') : '',
-        sku: variant?.sku || '',
-        priceNaira: variant ? String(Math.round(variant.priceMinor / 100)) : '',
-        comparePriceNaira: prod.comparePriceMinor ? String(Math.round(prod.comparePriceMinor / 100)) : '',
-        availableQuantity: variant ? String(variant.availableQuantity) : '10',
-        lowStockThreshold: variant ? String(variant.lowStockThreshold ?? 3) : '3',
-        variantMode: (prod.variants?.length ?? 0) > 1 ? 'variants' : 'single',
-        selectedSizes: [...new Set((prod.variants || []).map((item) => item.optionSize).filter(Boolean))],
-        selectedColors: [...new Set((prod.variants || []).map((item) => item.optionColor).filter(Boolean))],
-        variantMatrix: prod.variants || [],
-        description: prod.description || '',
-        imageUrl: media?.mediaUrl || '',
-        weightKg: prod.weightKg ? String(prod.weightKg) : '0.85',
-        dimensionsCm: prod.dimensionsCm || '33 × 21 × 12',
-        returnPolicy: prod.returnPolicy || '7_day_escrow',
-        warranty: prod.warranty || '30_days',
-        submitForReview: prod.status === 'published' || prod.status === 'pending_approval',
-      };
-      state.activeView = 'add-product';
-      render();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      showNotice(`Loaded "${prod.title}" into Product Studio.`);
+      loadProductIntoStudio(prod, prod.status === 'rejected');
     } else {
       state.activeView = 'add-product';
       render();
@@ -4664,6 +4981,10 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'submit-product') {
     const productId = button.dataset.productId;
+    // This action belongs to an existing draft in the catalogue. The Product
+    // Studio submit control is a native form submit and intentionally has no
+    // product id until its create request has completed.
+    if (!productId) return;
     await performServerAction(`submit-product-${productId}`, async () => {
       await api(`/v1/catalog-management/products/${productId}/submit`, {
         method: 'POST',
@@ -4978,22 +5299,18 @@ async function uploadProductMediaImage(file) {
     showNotice(error.message, 'error');
     return;
   }
-  if (!imageFitsProfile(dimensions.width, dimensions.height, profile)) {
-    const message = `${file.name} is ${dimensions.width} × ${dimensions.height}px. ${profile.label} is required for this category.`;
-    const statusEl = document.getElementById('prod-image-upload-status');
-    state.productDraft ||= {};
-    state.productDraft.imageValidation = { valid: false, ...dimensions, profile: profile.key };
-    if (statusEl) {
-      statusEl.style.display = 'flex';
-      statusEl.innerHTML = `${icon('alert-circle')} <span style="color:var(--rose-600);font-weight:600;">${escapeHtml(message)}</span>`;
-    }
-    showNotice(message, 'error');
-    return;
-  }
-
   const merchantId = state.merchant.id;
   const draft = state.productDraft ||= {};
-  draft.imageValidation = { valid: true, ...dimensions, profile: profile.key };
+  const meetsGridRecommendation = imageFitsProfile(dimensions.width, dimensions.height, profile);
+  // Grid dimensions are guidance for the shopper experience, not a gate on
+  // moderation. Operations needs to see the vendor's original image before
+  // deciding whether it is suitable for the marketplace.
+  draft.imageValidation = {
+    valid: true,
+    meetsGridRecommendation,
+    ...dimensions,
+    profile: profile.key,
+  };
   const uploadBtn = document.querySelector('[data-action="trigger-product-image-upload"]');
   const uploadStatus = document.getElementById('prod-image-upload-status');
 
@@ -5054,9 +5371,13 @@ async function uploadProductMediaImage(file) {
 
     if (uploadStatus) {
       uploadStatus.style.display = 'flex';
-      uploadStatus.innerHTML = `${icon('check-circle')} <span style="color:var(--forest-900);font-weight:600;">${escapeHtml(file.name)} (${dimensions.width} × ${dimensions.height}px) meets the ${escapeHtml(profile.key)} image rules.</span>`;
+      uploadStatus.innerHTML = meetsGridRecommendation
+        ? `${icon('check-circle')} <span style="color:var(--forest-900);font-weight:600;">${escapeHtml(file.name)} (${dimensions.width} × ${dimensions.height}px) matches the shopper-grid guidance.</span>`
+        : `${icon('alert-triangle')} <span style="color:var(--gold-700);font-weight:600;">${escapeHtml(file.name)} is ${dimensions.width} × ${dimensions.height}px. Recommended for the customer app grid: ${escapeHtml(profile.label)}. It was uploaded and will be shown to Operations for review.</span>`;
     }
-    showNotice('Product image uploaded successfully!', 'success');
+    showNotice(meetsGridRecommendation
+      ? 'Product image uploaded successfully!'
+      : 'Product image uploaded. Its dimensions are outside the shopper-grid recommendation, so Operations will review it.', meetsGridRecommendation ? 'success' : 'warning');
   } catch (err) {
     console.error('Image upload failed:', err);
     if (uploadStatus) {
@@ -5503,16 +5824,20 @@ document.addEventListener('submit', async (event) => {
           lowStockThreshold,
         }];
 
-    if (!title || !brand || !categoryId || !Number.isFinite(weightKgNumber) || weightKgNumber <= 0 || !dimensionsCm ||
-      !Number.isFinite(priceNaira) || !Number.isSafeInteger(priceMinor) || priceNaira <= 0 ||
-      !description || (imageUrl ? !isMediaUrlValid(imageUrl) : submitForReview) || variants.length === 0 || variants.some((variant) =>
-        !variant.sku || !Number.isSafeInteger(variant.priceMinor) || variant.priceMinor <= 0 ||
+    // Listing-quality checks above are guidance for Operations, not a second
+    // moderation gate in the browser. Keep only constraints needed to store a
+    // coherent draft safely; the item will remain invisible to shoppers until
+    // an Operations moderator approves it.
+    if (!title || !brand || !Number.isFinite(weightKgNumber) || weightKgNumber <= 0 || !dimensionsCm ||
+      !Number.isFinite(priceNaira) || !Number.isSafeInteger(priceMinor) || priceNaira < 0 ||
+      (imageUrl && !isMediaUrlValid(imageUrl)) || variants.length === 0 || variants.some((variant) =>
+        !Number.isSafeInteger(variant.priceMinor) || variant.priceMinor < 0 ||
         !Number.isSafeInteger(variant.availableQuantity) || variant.availableQuantity < 0
       )) {
-      if (imageUrl ? !isMediaUrlValid(imageUrl) : submitForReview) {
+      if (imageUrl && !isMediaUrlValid(imageUrl)) {
         state.formError = 'Please upload a product photo from your device or gallery, or provide a valid image URL.';
       } else {
-        state.formError = 'Please fill in all required product specification fields with valid data.';
+        state.formError = 'Please add a product name, valid price and stock values, plus packed weight and size so Operations can review the listing.';
       }
       render();
       return;
@@ -5529,6 +5854,7 @@ document.addEventListener('submit', async (event) => {
     if (state.editingProductId) {
       const prodId = state.editingProductId;
       const existingProduct = state.products.find((p) => p.id === prodId);
+      const isRejected = existingProduct?.status === 'rejected';
       const variantId = existingProduct?.variants?.[0]?.id;
       const imageMedia = existingProduct?.media?.find((m) => m.mediaType === 'image');
 
@@ -5588,7 +5914,7 @@ document.addEventListener('submit', async (event) => {
                 idempotencyScope: 'catalog-media-create',
                 body: { mediaUrl: imageUrl, mediaType: 'image', altText: title, sortOrder: 0 },
               });
-          if (submitForReview && (productUpdate.status === 'draft' || mediaUpdate?.productStatus === 'draft')) {
+          if (submitForReview && (productUpdate?.status === 'draft' || mediaUpdate?.productStatus === 'draft' || isRejected)) {
             await api(`/v1/catalog-management/products/${prodId}/submit`, {
               method: 'POST',
               idempotencyScope: 'catalog-submit',
@@ -5601,7 +5927,7 @@ document.addEventListener('submit', async (event) => {
         state.editingProductId = null;
         state.productDraft = null;
         state.activeView = 'catalogue';
-      }, 'Product specifications updated successfully.');
+      }, isRejected ? 'Product updated and resubmitted for Operations moderation.' : 'Product specifications updated successfully.');
       return;
     }
 
@@ -6027,6 +6353,10 @@ async function boot() {
         state.modal = null;
         state.profileDraft = null;
         state.verificationData = null;
+        state.notifications = [];
+        state.unreadNotificationsCount = 0;
+        state.notificationsOpen = false;
+        teardownNotificationsSync();
         state.workspaceError = '';
         state.loading = false;
         state.authMode = 'signin';
