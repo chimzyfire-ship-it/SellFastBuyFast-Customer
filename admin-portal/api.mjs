@@ -26,6 +26,31 @@ export class AdminApi {
       );
     return session.access_token;
   }
+  requestUrl(path, direct = false) {
+    return this.proxy && !direct
+      ? `${this.proxy}?path=${encodeURIComponent(path)}`
+      : `${this.base}${path}`;
+  }
+  async fetchResponse(path, options, allowDirectFallback) {
+    const urls = allowDirectFallback && this.proxy
+      ? [this.requestUrl(path), this.requestUrl(path, true)]
+      : [this.requestUrl(path)];
+    let transportError;
+    for (const [index, url] of urls.entries()) {
+      try {
+        const response = await this.fetcher(url, options);
+        if (
+          index + 1 < urls.length &&
+          [502, 503, 504].includes(response.status)
+        )
+          continue;
+        return response;
+      } catch (error) {
+        transportError = error;
+      }
+    }
+    throw transportError;
+  }
   async request(path, { method = "GET", body, signal, key, version } = {}) {
     if (!path.startsWith("/v1/") || path.includes("://"))
       throw new Error("Only Core API workspace paths are allowed.");
@@ -52,10 +77,8 @@ export class AdminApi {
         }
         let response;
         try {
-          response = await this.fetcher(
-            this.proxy
-              ? `${this.proxy}?path=${encodeURIComponent(path)}`
-              : `${this.base}${path}`,
+          response = await this.fetchResponse(
+            path,
             {
               method,
               headers,
@@ -65,6 +88,7 @@ export class AdminApi {
               credentials: "omit",
               referrerPolicy: "no-referrer",
             },
+            method === "GET",
           );
         } catch {
           if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
