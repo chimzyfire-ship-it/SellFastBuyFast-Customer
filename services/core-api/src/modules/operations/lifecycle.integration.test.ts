@@ -199,7 +199,7 @@ test("Non-payment purchase lifecycle through real SQL and HTTP", async (t) => {
         supabaseAdmin.storage.from = originalFrom;
       }
       const created = await request(`/v1/catalog-management/merchant/${merchant}/products`, merchantUser, 'POST', {
-        title: 'Vendor photo listing', description: 'A complete product description for moderation.', categoryId: category,
+        title: 'Vendor photo listing', description: 'wrong details for admin review', categoryId: category, weightKg: null, dimensionsCm: 'wrong dimensions',
         variants: [{sku: 'PHOTO-TEST', priceMinor: 20000, availableQuantity: 4}],
         media: [{mediaUrl: imageUrl, mediaType: 'image'}],
       });
@@ -215,11 +215,16 @@ test("Non-payment purchase lifecycle through real SQL and HTTP", async (t) => {
       assert.equal((await request(root + '/moderate', merchantUser, 'POST', {decision: 'publish', note: 'Photo reviewed and approved.'})).status, 403);
       const detail = await request(`/v1/admin/catalogue/${productId}`, moderator);
       assert.equal(detail.status, 200, JSON.stringify(detail.body));
-      assert.ok(Number(detail.body.data.record.weightKg) > 0);
-      assert.ok(detail.body.data.record.dimensionsCm);
+      assert.equal(detail.body.data.record.weightKg, null);
+      assert.equal(detail.body.data.record.dimensionsCm, 'wrong dimensions');
+      await db.execute(sql`update merchants set registration_state='not_registered' where id=${merchant}`);
       const approved = await request(root + '/moderate', moderator, 'POST', {decision: 'publish', note: 'Photo reviewed and approved.'}, id(), {'If-Match': String(detail.body.data.record.version)});
       assert.equal(approved.status, 200, JSON.stringify(approved.body));
       assert.equal((await visible()).media[0].mediaUrl, imageUrl);
+      assert.equal((await visible()).description, 'wrong details for admin review');
+      assert.equal((await visible()).dimensionsCm, 'wrong dimensions');
+      assert.equal((await request('/v1/catalog/products/' + productId, null)).status, 200);
+      await db.execute(sql`update merchants set registration_state='registered' where id=${merchant}`);
       const mediaId = created.body.data.media[0].id;
       const changed = await request(`/v1/catalog-management/media/${mediaId}`, merchantUser, 'PATCH', {mediaUrl: imageUrl + '?replacement=1'});
       assert.equal(changed.status, 200, JSON.stringify(changed.body));
@@ -233,6 +238,7 @@ test("Non-payment purchase lifecycle through real SQL and HTTP", async (t) => {
       const rejected = await request(root + '/moderate', moderator, 'POST', {decision: 'reject', note: 'work on this'}, id(), {'If-Match': String(rejectionDetail.body.data.record.version)});
       assert.equal(rejected.status, 200, JSON.stringify(rejected.body));
       assert.equal(await visible(), undefined, 'Rejected listings never appear to shoppers');
+      assert.equal(rejected.body.data.rejectionReason, 'work on this');
       const unchanged = await request(root, merchantUser, 'PATCH', {
         title: 'Vendor photo listing',
         description: 'A complete product description for moderation.',

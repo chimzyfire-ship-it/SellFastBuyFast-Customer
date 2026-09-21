@@ -29,12 +29,11 @@ catalogRouter.get('/products', async (req: Request, res: Response) => {
   try {
     const { categoryId, featured } = req.query;
 
-    // Vacation-mode stores remain discoverable, but inactive or unregistered
-    // merchants must never leak into the storefront catalogue.
+    // Approval controls listing visibility. Store registration is reviewed separately;
+    // inactive merchants remain hidden.
     const conditions = [
       eq(products.status, 'published'),
       eq(merchants.status, 'active'),
-      eq(merchants.registrationState, 'registered'),
     ];
     if (categoryId && typeof categoryId === 'string') {
       conditions.push(eq(products.categoryId, categoryId));
@@ -147,7 +146,6 @@ catalogRouter.get('/products/:id', async (req: Request, res: Response) => {
         eq(products.id, id),
         eq(products.status, 'published'),
         eq(merchants.status, 'active'),
-        eq(merchants.registrationState, 'registered'),
       ))
       .limit(1);
 

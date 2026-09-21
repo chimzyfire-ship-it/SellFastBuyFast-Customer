@@ -135,7 +135,10 @@ export const AppProvider = ({ children }) => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') void loadCatalogueData();
     });
-    return () => subscription.remove();
+    const refreshTimer = setInterval(() => {
+      if (AppState.currentState === 'active') void loadCatalogueData();
+    }, 15000);
+    return () => { subscription.remove(); clearInterval(refreshTimer); };
   }, [loadCatalogueData]);
 
   const refreshOrders = useCallback(async () => {
