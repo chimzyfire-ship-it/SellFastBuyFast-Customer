@@ -40,7 +40,7 @@ const ReturnPolicySchema = z.enum(['7_day_escrow', 'inspection_only']);
 const WarrantySchema = z.enum(['no_warranty', '30_days', '6_months', '1_year']);
 const TagsSchema = z.array(z.string().trim().min(1).max(60)).max(20)
   .transform((tags) => [...new Set(tags.map((tag) => tag.toLowerCase()))]);
-const WeightKgSchema = z.number().finite().positive().max(9_999.99);
+const WeightKgSchema = z.number().finite().min(-9_999.99).max(9_999.99).nullable();
 
 const VariantSchema = z.object({
   // A listing may be sent to moderation with an incomplete merchant SKU. The
@@ -70,8 +70,8 @@ const CreateProductSchema = z.object({
   condition: ConditionSchema.default('brand_new'),
   description: z.string().trim().max(10_000),
   comparePriceMinor: z.number().int().nonnegative().safe().optional(),
-  weightKg: WeightKgSchema.default(0.85),
-  dimensionsCm: z.string().trim().min(1).max(60).default('33 × 21 × 12'),
+  weightKg: WeightKgSchema.default(null),
+  dimensionsCm: z.string().trim().max(60).default(''),
   returnPolicy: ReturnPolicySchema.default('7_day_escrow'),
   warranty: WarrantySchema.default('30_days'),
   tags: TagsSchema.default([]),
@@ -87,7 +87,7 @@ const UpdateProductSchema = z.object({
   description: z.string().trim().max(10_000).optional(),
   comparePriceMinor: z.number().int().nonnegative().safe().nullable().optional(),
   weightKg: WeightKgSchema.optional(),
-  dimensionsCm: z.string().trim().min(1).max(60).optional(),
+  dimensionsCm: z.string().trim().max(60).optional(),
   returnPolicy: ReturnPolicySchema.optional(),
   warranty: WarrantySchema.optional(),
   tags: TagsSchema.optional(),
@@ -251,7 +251,7 @@ catalogManagementRouter.post(
           comparePriceMinor: parsed.data.comparePriceMinor && parsed.data.comparePriceMinor > basePriceMinor
             ? parsed.data.comparePriceMinor
             : undefined,
-          weightKg: parsed.data.weightKg.toFixed(2),
+          weightKg: parsed.data.weightKg?.toFixed(2) ?? null,
           dimensionsCm: parsed.data.dimensionsCm,
           returnPolicy: parsed.data.returnPolicy,
           warranty: parsed.data.warranty,
@@ -541,7 +541,7 @@ catalogManagementRouter.patch(
       const [saved] = await tx.update(products).set({
         ...productPatch,
         ...(comparePriceMinor === undefined ? {} : { comparePriceMinor: validComparePriceMinor }),
-        ...(weightKg === undefined ? {} : { weightKg: weightKg.toFixed(2) }),
+        ...(weightKg === undefined ? {} : { weightKg: weightKg?.toFixed(2) ?? null }),
         status: returnedToDraft ? 'draft' : product.status,
         rejectionReason: returnedToDraft ? null : product.rejectionReason,
         updatedAt: new Date(),
@@ -682,7 +682,7 @@ catalogManagementRouter.post(
         weightKg: product.weightKg,
         dimensionsCm: product.dimensionsCm,
       });
-      const [updated] = await tx.update(products).set({ status: 'pending_approval', updatedAt: new Date() })
+      const [updated] = await tx.update(products).set({ status: 'pending_approval', rejectionReason: null, updatedAt: new Date() })
         .where(eq(products.id, product.id)).returning();
       await tx.insert(outboxEvents).values({ type: 'catalog.product_submitted', payload: { productId: product.id } });
       await tx.insert(productModerationLogs).values({

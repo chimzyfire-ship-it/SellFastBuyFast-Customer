@@ -24,7 +24,7 @@ const PRODUCT_TRANSITIONS: Record<ProductStatus, ProductStatus[]> = {
   draft: ['pending_approval', 'archived'],
   pending_approval: ['published', 'rejected'],
   published: ['draft', 'archived'],
-  rejected: ['draft', 'archived'],
+  rejected: ['draft', 'pending_approval', 'archived'],
   archived: ['draft'],
 };
 
@@ -41,7 +41,7 @@ export function requiresRemoderation(patch: {
   brandId?: string | null;
   brand?: string;
   condition?: string;
-  weightKg?: number;
+  weightKg?: number | null;
   dimensionsCm?: string;
   returnPolicy?: string;
   warranty?: string;

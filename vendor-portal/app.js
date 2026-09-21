@@ -1983,7 +1983,7 @@ function renderAddProductView() {
 
             <div class="form-group">
               <label class="form-label" for="prod-desc">Product description</label>
-              <textarea class="textarea" id="prod-desc" name="description" placeholder="Example: Lightweight blue canvas sneakers with a cushioned insole. Best for everyday wear. Includes original box." style="min-height:110px;" required>${escapeHtml(description)}</textarea>
+              <textarea class="textarea" id="prod-desc" name="description" placeholder="Example: Lightweight blue canvas sneakers with a cushioned insole. Best for everyday wear. Includes original box." style="min-height:110px;">${escapeHtml(description)}</textarea>
               <span class="field-help">This appears below the image on the product page.</span>
             </div>
             <div class="form-group">
@@ -1994,14 +1994,14 @@ function renderAddProductView() {
 
             <div class="grid-2col">
               <div class="form-group">
-                <label class="form-label" for="prod-weight">Packed weight (kg)</label>
-                <input class="input" id="prod-weight" name="weightKg" type="number" step="0.05" min="0.1" placeholder="e.g. 0.85" value="${escapeAttribute(weightKg)}" required />
-                <span class="field-help">Used for GIGL / DHL automated courier rates.</span>
+                <label class="form-label" for="prod-weight">Packed weight (kg, optional)</label>
+                <input class="input" id="prod-weight" name="weightKg" type="number" step="any" placeholder="e.g. 0.85" value="${escapeAttribute(weightKg)}" />
+                <span class="field-help">Leave blank if unknown. Operations reviews the details before publication.</span>
               </div>
               <div class="form-group">
-                <label class="form-label" for="prod-dims">Packed size (L × W × H cm)</label>
-                <input class="input" id="prod-dims" name="dimensionsCm" placeholder="e.g. 33 × 21 × 12" value="${escapeAttribute(dimensionsCm)}" required />
-                <span class="field-help">Required for delivery pricing and visible to Operations during approval.</span>
+                <label class="form-label" for="prod-dims">Packed size (L × W × H cm, optional)</label>
+                <input class="input" id="prod-dims" name="dimensionsCm" placeholder="e.g. 33 × 21 × 12" value="${escapeAttribute(dimensionsCm)}" />
+                <span class="field-help">Submitted as entered for Operations to review.</span>
               </div>
             </div>
 
@@ -3919,8 +3919,8 @@ function loadProductIntoStudio(prod, isFix = false) {
     variantMatrix: prod.variants || [],
     description: prod.description || '',
     imageUrl: media?.mediaUrl || '',
-    weightKg: prod.weightKg ? String(prod.weightKg) : '0.85',
-    dimensionsCm: prod.dimensionsCm || '33 × 21 × 12',
+    weightKg: prod.weightKg == null ? '' : String(prod.weightKg),
+    dimensionsCm: prod.dimensionsCm || '',
     returnPolicy: prod.returnPolicy || '7_day_escrow',
     warranty: prod.warranty || '30_days',
     submitForReview: true,
@@ -5781,6 +5781,7 @@ document.addEventListener('submit', async (event) => {
       ? configuredLowStockThreshold
       : 3;
     const description = form.elements.description.value.trim();
+    const careInstructions = form.elements.careInstructions?.value.trim() || '';
     const imageUrl = form.elements.imageUrl.value.trim();
     const bullet1 = form.elements.bullet1?.value.trim() || '';
     const bullet2 = form.elements.bullet2?.value.trim() || '';
@@ -5796,7 +5797,7 @@ document.addEventListener('submit', async (event) => {
     const priceMinor = Math.round(priceNaira * 100);
     const comparePriceMinor = comparePriceNaira > 0 ? Math.round(comparePriceNaira * 100) : undefined;
     const tagList = [...new Set(tags.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean))];
-    const weightKgNumber = Number(weightKg);
+    const weightKgNumber = weightKg ? Number(weightKg) : null;
     const matrixRows = Array.from(form.querySelectorAll('#variant-matrix-tbody tr'));
     const variants = variantMode === 'variants'
       ? matrixRows.map((row) => {
@@ -5828,7 +5829,7 @@ document.addEventListener('submit', async (event) => {
     // moderation gate in the browser. Keep only constraints needed to store a
     // coherent draft safely; the item will remain invisible to shoppers until
     // an Operations moderator approves it.
-    if (!title || !brand || !Number.isFinite(weightKgNumber) || weightKgNumber <= 0 || !dimensionsCm ||
+    if (!title || !brand || (weightKgNumber !== null && (!Number.isFinite(weightKgNumber) || Math.abs(weightKgNumber) > 9999.99)) ||
       !Number.isFinite(priceNaira) || !Number.isSafeInteger(priceMinor) || priceNaira < 0 ||
       (imageUrl && !isMediaUrlValid(imageUrl)) || variants.length === 0 || variants.some((variant) =>
         !Number.isSafeInteger(variant.priceMinor) || variant.priceMinor < 0 ||
@@ -5837,7 +5838,7 @@ document.addEventListener('submit', async (event) => {
       if (imageUrl && !isMediaUrlValid(imageUrl)) {
         state.formError = 'Please upload a product photo from your device or gallery, or provide a valid image URL.';
       } else {
-        state.formError = 'Please add a product name, valid price and stock values, plus packed weight and size so Operations can review the listing.';
+        state.formError = 'Please add a product name and use numeric price and whole-number stock values. Packed weight and size are optional for review.';
       }
       render();
       return;
@@ -5866,7 +5867,7 @@ document.addEventListener('submit', async (event) => {
             body: {
               title,
               description: formattedDescription,
-              categoryId,
+              categoryId: categoryId || null,
               brand,
               condition,
               comparePriceMinor: comparePriceMinor || null,
@@ -5938,7 +5939,7 @@ document.addEventListener('submit', async (event) => {
           method: 'POST',
           idempotencyScope: 'catalog-create',
           body: {
-            categoryId,
+            categoryId: categoryId || undefined,
             title,
             brand,
             condition,
