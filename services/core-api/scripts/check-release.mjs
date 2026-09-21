@@ -15,7 +15,7 @@ const healthBody=await health.json();
 assert.equal(healthBody.capabilities?.productMediaUpload,true,'Deployed API must include vendor photo uploads');
 assert.equal(healthBody.capabilities?.catalogModeration,true,'Deployed API must include catalogue moderation');
 if(process.argv.includes('--run-maintenance')){
- const {OPERATIONS_RUNNER_SECRET:secret}=dotenv.parse(readFileSync(path.join(root,'.env.operations.local')));
+ const {OPERATIONS_RUNNER_SECRET:secret}=dotenv.parse(readFileSync(path.join(root,'.operations.secrets.local')));
  const response=await request(api+'/internal/operations/run',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:'{}'});
  assert.equal(response.status,200,'Authorized maintenance');console.log('Authorized non-payment maintenance completed.');
 }

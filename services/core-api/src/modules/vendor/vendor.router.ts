@@ -672,24 +672,33 @@ vendorRouter.post(
       const result = await db.transaction(async (tx) => {
         const [merchant] = await tx.select().from(merchants).where(eq(merchants.id, req.params.merchantId)).limit(1).for('update');
         if (!merchant) throw errors.notFound('Merchant not found.');
-        if (merchant.registrationState !== 'in_review') {
-          throw errors.conflict('REGISTRATION_NOT_UNDER_REVIEW', 'Only registrations under review can be decided.');
+        if (!['in_review', 'not_registered'].includes(merchant.registrationState)) {
+          throw errors.conflict('REGISTRATION_NOT_UNDER_REVIEW', 'Only pending or unregistered merchant accounts can be verified.');
         }
         const [verification] = await tx.select().from(merchantVerifications)
           .where(eq(merchantVerifications.merchantId, merchant.id))
           .orderBy(desc(merchantVerifications.updatedAt)).limit(1).for('update');
-        if (!verification || verification.status !== 'pending') {
-          throw errors.conflict('VERIFICATION_NOT_PENDING', 'A pending verification is required before this decision.');
-        }
         const now = new Date();
         const approved = parsed.data.decision === 'approve';
-        const [savedVerification] = await tx.update(merchantVerifications).set({
-          status: approved ? 'approved' : 'rejected',
-          rejectionReason: approved ? null : parsed.data.note,
-          reviewedBy: req.user!.id,
-          reviewedAt: now,
-          updatedAt: now,
-        }).where(eq(merchantVerifications.id, verification.id)).returning();
+        let savedVerification;
+        if (verification) {
+          [savedVerification] = await tx.update(merchantVerifications).set({
+            status: approved ? 'approved' : 'rejected',
+            rejectionReason: approved ? null : parsed.data.note,
+            reviewedBy: req.user!.id,
+            reviewedAt: now,
+            updatedAt: now,
+          }).where(eq(merchantVerifications.id, verification.id)).returning();
+        } else {
+          [savedVerification] = await tx.insert(merchantVerifications).values({
+            merchantId: merchant.id,
+            status: approved ? 'approved' : 'rejected',
+            rejectionReason: approved ? null : parsed.data.note,
+            reviewedBy: req.user!.id,
+            reviewedAt: now,
+            updatedAt: now,
+          }).returning();
+        }
         const [savedMerchant] = await tx.update(merchants).set({
           registrationState: approved ? 'registered' : 'not_registered',
           status: approved ? 'active' : 'rejected',
@@ -699,7 +708,7 @@ vendorRouter.post(
           actorId: req.user!.id,
           action: approved ? 'merchant.registration_approved' : 'merchant.registration_rejected',
           resourceType: 'merchant_verification',
-          resourceId: verification.id,
+          resourceId: savedVerification.id,
           metadata: { merchantId: merchant.id, note: parsed.data.note },
           ipAddress: req.ip,
         });

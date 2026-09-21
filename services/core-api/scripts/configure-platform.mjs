@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
 dotenv.config({path:path.join(root,'.env')});
-const saved=dotenv.parse(readFileSync(path.join(root,'.env.operations.local')));
+const saved=dotenv.parse(readFileSync(path.join(root,'.operations.secrets.local')));
 const ref=process.env.SUPABASE_PROJECT_REF,token=process.env.SUPABASE_ACCESS_TOKEN;
 if(!ref||!token)throw Error('Supabase management credentials are unavailable.');
 async function management(route,options={}){

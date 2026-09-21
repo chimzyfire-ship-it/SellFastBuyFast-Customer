@@ -11,7 +11,8 @@ export class AdminApi {
     this.base = config.apiUrl.replace(/\/$/, "");
     this.proxy = config.apiProxyPath === "/api/core" ? config.apiProxyPath : null;
     this.auth = auth;
-    this.fetcher = fetcher;
+    // Browser fetch requires Window as its receiver, not this AdminApi instance.
+    this.fetcher = fetcher.bind(globalThis);
   }
   async accessToken(refresh = false) {
     const result = refresh

@@ -70,7 +70,7 @@ node services/core-api/scripts/inspect-infrastructure.mjs
 node services/core-api/scripts/migrate.mjs --dry-run
 ```
 
-After reviewing the target and output, deploy with the existing linked Vercel projects. `configure-release.mjs` previews environment names; `--apply` writes the reviewed settings. It preserves locally generated secrets in the ignored `.env.operations.local` file. Protect/back up this file or preserve equivalent secrets in the deployment secret manager; do not rotate them on every deployment. Configure the platform with `configure-platform.mjs auth --apply` and `configure-platform.mjs scheduler --apply`. These scripts are specific to the three URLs above.
+After reviewing the target and output, deploy with the existing linked Vercel projects. `configure-release.mjs` previews environment names; `--apply` writes the reviewed settings. It preserves locally generated secrets in the ignored `.operations.secrets.local` file. Protect/back up this file or preserve equivalent secrets in the deployment secret manager; do not rotate them on every deployment. Configure the platform with `configure-platform.mjs auth --apply` and `configure-platform.mjs scheduler --apply`. These scripts are specific to the three URLs above.
 
 `check-release.mjs` verifies deployed routes, public configuration, auth denial, CORS and readiness. `check-scheduler.mjs` verifies the persisted scheduled task and a successful execution. Neither creates users or marketplace test data. `check-release.mjs --run-maintenance` is an explicitly authenticated operational invocation, not a read-only check.
 
