@@ -16,6 +16,7 @@ __pycache__/
 # Environment & Secrets
 .env
 .env*.local
+.operations.secrets.local
 .env.production
 .env.staging
 supabase/.temp/

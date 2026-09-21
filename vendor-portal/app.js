@@ -44,7 +44,7 @@ const state = {
   busy: null,
   modal: null,
   authMode: 'signin', // 'signin' | 'signup' | 'verify-otp' | 'recover' | 'onboarding'
-  pendingEmail: '',
+  pendingEmail: typeof window !== 'undefined' && window.sessionStorage ? (window.sessionStorage.getItem('sfbf-pending-email') || '') : '',
   pendingPassword: '',
   pendingFullName: '',
   pendingBusinessName: '',
@@ -596,6 +596,16 @@ function renderAuthHtml() {
         <p class="auth-subtitle">We sent a 6-digit verification code to <strong style="color:var(--forest-900);">${escapeHtml(state.pendingEmail || 'your email')}</strong></p>
 
         ${state.authError ? `<div class="error-summary" role="alert">${icon('alert-circle')} <span>${escapeHtml(state.authError)}</span></div>` : ''}
+
+        ${!state.pendingEmail ? `
+        <div class="form-group">
+          <label class="form-label" for="otp-email">Your Account Email</label>
+          <div class="input-wrapper">
+            <span class="input-icon-left">${icon('mail')}</span>
+            <input class="input has-icon-left" id="otp-email" name="email" type="email" placeholder="vendor@business.ng" required />
+          </div>
+        </div>
+        ` : ''}
 
         <div class="form-group">
           <label class="form-label" for="otp-code" style="justify-content:center;margin-bottom:8px;">Enter 6-Digit Code</label>
@@ -5487,6 +5497,15 @@ document.addEventListener('submit', async (event) => {
       showNotice('Signed in successfully!');
       await loadWorkspace();
     } catch (err) {
+      if (err.message && err.message.toLowerCase().includes('email not confirmed')) {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          window.sessionStorage.setItem('sfbf-pending-email', state.pendingEmail);
+        }
+        state.authMode = 'verify-otp';
+        showNotice(`Please verify your email. A 6-digit code was sent to ${state.pendingEmail}.`);
+        render();
+        return;
+      }
       setInlineAuthError(form, err.message || 'Sign in failed. Check your email and password.');
       if (submitBtn) {
         submitBtn.disabled = false;
@@ -5502,6 +5521,14 @@ document.addEventListener('submit', async (event) => {
   // 1-Time Signup OTP Verification Form
   if (form.id === 'verify-otp-form') {
     const token = form.elements.otpCode?.value?.trim() || '';
+    const email = (form.elements.email?.value?.trim() || state.pendingEmail || '').trim();
+    state.pendingEmail = email;
+
+    if (!email) {
+      setInlineAuthError(form, 'Please provide the email address associated with your account.');
+      return;
+    }
+
     if (!token || token.length < 6) {
       setInlineAuthError(form, 'Please enter the 6-digit OTP code sent to your email.');
       return;
@@ -5517,14 +5544,14 @@ document.addEventListener('submit', async (event) => {
 
     try {
       let res = await state.client.auth.verifyOtp({
-        email: state.pendingEmail,
+        email,
         token,
         type: 'signup',
       });
 
       if (res.error) {
         res = await state.client.auth.verifyOtp({
-          email: state.pendingEmail,
+          email,
           token,
           type: 'email',
         });
@@ -5534,6 +5561,9 @@ document.addEventListener('submit', async (event) => {
         throw new Error(res.error?.message || 'Invalid or expired OTP code.');
       }
 
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem('sfbf-pending-email');
+      }
       state.session = res.data.session;
       state.workspaceError = '';
       state.authError = '';
@@ -5592,8 +5622,11 @@ document.addEventListener('submit', async (event) => {
         showNotice('Merchant account created successfully!');
         await loadWorkspace();
       } else {
-        state.authMode = 'signin';
-        showNotice('Check your email to confirm your account, then sign in.');
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          window.sessionStorage.setItem('sfbf-pending-email', state.pendingEmail);
+        }
+        state.authMode = 'verify-otp';
+        showNotice(`Verification code sent to ${state.pendingEmail}. Enter the 6-digit code below.`);
         render();
       }
     } catch (err) {

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
 dotenv.config({path:path.join(root,'.env')});
-const local=path.join(root,'.env.operations.local');
+const local=path.join(root,'.operations.secrets.local');
 const saved=existsSync(local)?dotenv.parse(readFileSync(local)):{};
 for(const name of ['ADMIN_CURSOR_SECRET','OPERATIONS_RUNNER_SECRET'])saved[name]??=crypto.randomBytes(32).toString('hex');
 writeFileSync(local,Object.entries(saved).map(([key,value])=>`${key}=${value}`).join('\n')+'\n',{mode:0o600});

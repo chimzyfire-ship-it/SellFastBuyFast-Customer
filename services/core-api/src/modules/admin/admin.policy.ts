@@ -132,8 +132,8 @@ export function actionsFor(
       : r.status;
   const rules: Record<string, Array<[string, string[]]>> = {
     merchants: [
-      ["approve_merchant", ["in_review"]],
-      ["reject_merchant", ["in_review"]],
+      ["approve_merchant", ["in_review", "not_registered"]],
+      ["reject_merchant", ["in_review", "not_registered"]],
       ["suspend_merchant", ["registered"]],
       ["restore_merchant", ["suspended"]],
     ],
