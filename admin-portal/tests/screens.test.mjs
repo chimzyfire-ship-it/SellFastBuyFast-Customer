@@ -56,13 +56,17 @@ function workspace() {
       getItem() {
         return null;
       },
+      removeItem() {},
+    },
+    sessionStorage: {
+      removeItem() {},
     },
   });
   const code = source
     .replace(/^import[\s\S]*?from "[^"\n]+";\n/gm, "")
     .replace(
       /boot\(\);\s*$/,
-      "globalThis.subject={state,overview,list,detail,renderSettings,authPage,commandDialog,contentDialog,accessDialog,mutate};",
+      "globalThis.subject={state,overview,list,detail,renderSettings,authPage,commandDialog,contentDialog,accessDialog,mutate,endSession};",
     );
   vm.runInContext(code, context);
   context.subject.state.viewer = {
@@ -184,6 +188,15 @@ test("Content, access and authentication forms are complete and do not invent re
     subject.authPage(mode);
     assert.ok(elements.get("#app").innerHTML.includes(`data-form="${mode}"`));
   }
+});
+test("Emergency sign-out always returns to sign-in even if the network logout fails", async () => {
+  const { subject, elements } = workspace();
+  subject.state.auth = { signOut: async () => { throw new Error("offline"); } };
+  subject.state.data = { items: ["private"] };
+  await subject.endSession();
+  assert.equal(subject.state.viewer, null);
+  assert.equal(subject.state.data, null);
+  assert.match(elements.get("#app").innerHTML, /data-form="sign-in"/);
 });
 test("Unknown submission outcome preserves request key and locks values for retry", async () => {
   const { subject } = workspace();

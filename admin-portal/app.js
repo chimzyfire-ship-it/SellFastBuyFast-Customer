@@ -48,6 +48,7 @@ const state = {
   generation: 0,
   notice: "",
   busy: false,
+  identityRun: 0,
   drafts: new Map(),
   preferences: { density: "comfortable" },
 };
@@ -825,6 +826,7 @@ document.addEventListener("click", async (event) => {
           `<img class="image-preview" src="${esc(url)}" alt="${esc(target.dataset.label)}">`,
         );
     } else if (action === "connections") await checkConnections();
+    else if (action === "sign-out" && !state.viewer) await endSession();
     else if (action === "sign-out" || action === "sign-out-all")
       showDialog(
         "Sign out",
@@ -891,15 +893,7 @@ document.addEventListener("submit", async (event) => {
       return;
     }
     if (kind === "sign-out") {
-      const { error } = await state.auth.signOut({ scope: modalTask.scope });
-      if (error) throw error;
-      dialog.close();
-      state.controller?.abort();
-      state.viewer = null;
-      state.data = null;
-      state.drafts.clear();
-      pendingRequests.clear();
-      authPage();
+      await endSession(modalTask.scope);
       return;
     }
     if (!state.viewer) throw new Error("Sign in to continue.");
@@ -1095,6 +1089,7 @@ async function submitAuth(form, mode, values) {
   }
 }
 async function establishIdentity() {
+  const run = ++state.identityRun;
   state.viewer = null;
   app.innerHTML =
     '<main id="main" class="boot"><p role="status">Verifying your staff access…</p></main>';
@@ -1121,6 +1116,7 @@ async function establishIdentity() {
       await mfaDialog(true);
       return;
     }
+    if (run !== state.identityRun) return;
     if (state.lastViewerId && state.lastViewerId !== viewer.id)
       state.drafts.clear();
     state.lastViewerId = viewer.id;
@@ -1138,11 +1134,46 @@ async function establishIdentity() {
       history.replaceState(null, "", "#/overview");
     await loadRoute();
   } catch (error) {
+    if (run !== state.identityRun) return;
     if (error.status === 401) {
       authPage("sign-in", "Sign in again to continue.");
       return;
     }
     app.innerHTML = `<main id="main" class="boot"><div class="access-state"><div class="brand-mark">${icon("shield")}</div><h1>${error.status === 403 ? "Staff access required" : "Staff workspace unavailable"}</h1><p>${esc(errorMessage(error))}</p><p class="small muted">The workspace opens only after the Core API verifies your staff permissions.</p><div class="row">${button("Retry access check", "retry-identity", true)}${button("Sign out", "sign-out")}</div></div></main>`;
+  }
+}
+function clearStoredSession() {
+  for (const storage of [localStorage, sessionStorage]) {
+    try {
+      storage.removeItem("sfbf-admin-auth");
+    } catch {}
+  }
+}
+async function endSession(scope = "local") {
+  ++state.identityRun;
+  state.controller?.abort();
+  state.viewer = null;
+  state.data = null;
+  state.drafts.clear();
+  pendingRequests.clear();
+  state.notice = "";
+  if (dialog.open) dialog.close();
+  try {
+    const { error } = await state.auth?.signOut({ scope });
+    if (error && scope === "global")
+      toast(
+        "Signed out on this device. Other devices may need to sign out separately.",
+        true,
+      );
+  } catch {
+    if (scope === "global")
+      toast(
+        "Signed out on this device. Other devices may need to sign out separately.",
+        true,
+      );
+  } finally {
+    clearStoredSession();
+    authPage();
   }
 }
 async function mfaDialog(required = false) {
@@ -1315,6 +1346,7 @@ async function boot() {
       if (event === "SIGNED_OUT") {
         state.controller?.abort();
         ++state.generation;
+        ++state.identityRun;
         state.viewer = null;
         state.data = null;
         state.drafts.clear();
