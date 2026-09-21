@@ -205,6 +205,41 @@ test("Network failure and caller abort remain distinguishable", async () => {
     (e) => e.name === "AbortError",
   );
 });
+test("Identity reads recover from a brief network failure", async () => {
+  let calls = 0;
+  const api = new AdminApi(
+    { apiUrl: "https://api.invalid" },
+    auth,
+    async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("Connection warming up");
+      return Response.json({ success: true, data: { id: "staff" } });
+    },
+  );
+  assert.deepEqual(await api.request("/v1/admin/me"), { id: "staff" });
+  assert.equal(calls, 2);
+});
+test("Identity reads refresh an expired access token once before signing out", async () => {
+  let refreshes = 0;
+  const api = new AdminApi(
+    { apiUrl: "https://api.invalid" },
+    {
+      getSession: async () => ({
+        data: { session: { access_token: "old-token" } },
+      }),
+      refreshSession: async () => {
+        refreshes += 1;
+        return { data: { session: { access_token: "new-token" } } };
+      },
+    },
+    async (_url, options) =>
+      options.headers.Authorization === "Bearer old-token"
+        ? Response.json({ success: false }, { status: 401 })
+        : Response.json({ success: true, data: { id: "staff" } }),
+  );
+  assert.deepEqual(await api.request("/v1/admin/me"), { id: "staff" });
+  assert.equal(refreshes, 1);
+});
 
 test("Missing collections are an integration error, never an empty queue", () => {
   assert.throws(() => assertWorkspaceData("overview", "", {}), /incomplete/);
