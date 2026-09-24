@@ -242,13 +242,107 @@ async function loadRoute({ focus = true } = {}) {
     render(heading(r.section) + readStateError(error));
   }
   if (focus) document.querySelector("#main")?.focus({ preventScroll: true });
+  scheduleOverviewPoll();
+}
+function scheduleOverviewPoll() {
+  if (typeof window === "undefined" || !window.setInterval) return;
+  if (state.overviewTimer) {
+    clearInterval(state.overviewTimer);
+    state.overviewTimer = null;
+  }
+  if (state.route?.section !== "overview" || !state.viewer) return;
+
+  state.overviewTimer = setInterval(async () => {
+    try {
+      if (
+        state.route?.section !== "overview" ||
+        !state.viewer ||
+        state.busy ||
+        dialog?.open ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      const data = await state.api.request("/v1/admin/overview", {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (
+        state.route?.section !== "overview" ||
+        state.busy ||
+        dialog?.open ||
+        !data
+      ) {
+        return;
+      }
+      assertWorkspaceData("overview", "", data);
+      const prevPending = JSON.stringify(state.data?.pendingMerchants || []);
+      const nextPending = JSON.stringify(data.pendingMerchants || []);
+      const prevQueues = (state.data?.queues || []).map((q) => `${q.section}:${q.count}`).join(",");
+      const nextQueues = (data.queues || []).map((q) => `${q.section}:${q.count}`).join(",");
+
+      if (prevPending !== nextPending || prevQueues !== nextQueues) {
+        state.data = data;
+        render(overview(data));
+      }
+    } catch {
+      // Polling failure is silently ignored; manual refresh remains available.
+    }
+  }, 6000);
 }
 function overview(data) {
   const metrics = (data.metrics || []).filter((m) => allowed(m.section));
   const queues = (data.queues || []).filter((q) => allowed(q.section));
+  const pendingMerchants = (data.pendingMerchants || []).filter(() => allowed("merchants"));
+  const firstPendingMerchantId = pendingMerchants[0]?.id;
+
+  const targetUrlFor = (item) => {
+    if (item.section === "merchants" && firstPendingMerchantId) {
+      return routeUrl("merchants", firstPendingMerchantId);
+    }
+    return routeUrl(item.section, "", { status: item.status });
+  };
+
+  const pendingRegistrationsPanel = pendingMerchants.length
+    ? panel(
+        `Merchant registrations awaiting decision (${pendingMerchants.length})`,
+        `<div class="pending-merchants-list">${pendingMerchants
+          .map(
+            (pm) => `
+          <article class="pending-merchant-card">
+            <div class="pending-merchant-main">
+              <div class="pending-merchant-header">
+                <span class="record-icon">${icon("store")}</span>
+                <div>
+                  <h3 class="pending-merchant-name">${esc(pm.businessName || "Unnamed Store")}</h3>
+                  <div class="pending-merchant-sub">
+                    <span class="tag code">@${esc(pm.slug || pm.id.slice(0, 8))}</span>
+                    <span class="tag warn">${esc(human(pm.registrationState || "in_review"))}</span>
+                    ${pm.cacNumber ? `<span class="tag cac">CAC: ${esc(pm.cacNumber)}</span>` : ""}
+                  </div>
+                </div>
+              </div>
+              <div class="pending-merchant-contacts">
+                ${pm.contactEmail ? `<span>${icon("mail")} <a href="mailto:${esc(pm.contactEmail)}">${esc(pm.contactEmail)}</a></span>` : ""}
+                ${pm.contactPhone ? `<span>${icon("phone")} <a href="tel:${esc(pm.contactPhone)}">${esc(pm.contactPhone)}</a></span>` : ""}
+                <span>${icon("clock")} Submitted ${esc(date(pm.updatedAt || pm.createdAt))}</span>
+              </div>
+            </div>
+            <div class="pending-merchant-actions">
+              <a class="btn primary" href="${esc(routeUrl("merchants", pm.id))}">
+                Review & Decide ${icon("arrow")}
+              </a>
+            </div>
+          </article>
+        `,
+          )
+          .join("")}</div>`,
+        link("View all merchants", "merchants", "", { status: "in_review" }),
+      )
+    : "";
+
   return (
     heading("overview", refreshTools()) +
-    `<p class="small muted updated-line">${data.asOf ? `Updated ${esc(date(data.asOf))}` : "Reporting period not supplied"}</p><div class="metrics">${metrics.map((m) => `<a class="metric" href="${esc(routeUrl(m.section, "", { status: m.status }))}"><div class="metric-top">${esc(m.label)}<span class="metric-icon">${icon(SECTIONS[m.section].icon)}</span></div><div class="metric-value">${esc(m.format === "money" ? money(m.value) : (m.value ?? "—"))}</div><div class="metric-foot">${esc(m.description || "Open workspace")} ${icon("arrow")}</div></a>`).join("")}</div><div class="dashboard-grid"><div class="stack">${panel("Needs your attention", queues.length ? queues.map((q) => `<a class="attention-item" href="${esc(routeUrl(q.section, "", { status: q.status }))}"><span class="item-icon">${icon(SECTIONS[q.section].icon)}</span><span><strong>${esc(q.label)}</strong><p>${esc(q.description || SECTIONS[q.section].description)}</p></span><strong class="queue-count">${esc(q.count ?? "—")}</strong>${icon("arrow")}</a>`).join("") : empty("No work queued", "There are no items assigned to your available queues."))}${panel("Recent activity", timeline(data.activity), allowed("audit") ? link("View audit trail", "audit") : "")}</div><div>${panel("Marketplace connections", `<ul class="help-list"><li><strong>Merchant → review → storefront</strong><p class="muted">Business verification and catalogue approval control what shoppers can discover.</p></li><li><strong>Order → merchant → customer</strong><p class="muted">The Core API handles stock, fulfilment, and verified delivery. Operations handles exceptions.</p></li><li><strong>Return → decision → finance</strong><p class="muted">Evidence and support decisions feed a separate, provider-confirmed refund workflow.</p></li></ul>`)}<div class="workflow-card"><div class="eyebrow">Connected operations</div><h2>Every decision has context.</h2><p>Open a record to see related orders, merchant details, submitted evidence, and its activity history.</p>${link("View workspace settings", "settings")}</div></div></div>`
+    `<p class="small muted updated-line">${data.asOf ? `Updated ${esc(date(data.asOf))}` : "Reporting period not supplied"}</p><div class="metrics">${metrics.map((m) => `<a class="metric" href="${esc(targetUrlFor(m))}"><div class="metric-top">${esc(m.label)}<span class="metric-icon">${icon(SECTIONS[m.section].icon)}</span></div><div class="metric-value">${esc(m.format === "money" ? money(m.value) : (m.value ?? "—"))}</div><div class="metric-foot">${esc(m.description || "Open workspace")} ${icon("arrow")}</div></a>`).join("")}</div><div class="dashboard-grid"><div class="stack">${pendingRegistrationsPanel}${panel("Needs your attention", queues.length ? queues.map((q) => `<a class="attention-item" href="${esc(targetUrlFor(q))}"><span class="item-icon">${icon(SECTIONS[q.section].icon)}</span><span><strong>${esc(q.label)}</strong><p>${esc(q.description || SECTIONS[q.section].description)}</p></span><strong class="queue-count">${esc(q.count ?? "—")}</strong>${icon("arrow")}</a>`).join("") : empty("No work queued", "There are no items assigned to your available queues."))}${panel("Recent activity", timeline(data.activity), allowed("audit") ? link("View audit trail", "audit") : "")}</div><div>${panel("Marketplace connections", `<ul class="help-list"><li><strong>Merchant → review → storefront</strong><p class="muted">Business verification and catalogue approval control what shoppers can discover.</p></li><li><strong>Order → merchant → customer</strong><p class="muted">The Core API handles stock, fulfilment, and verified delivery. Operations handles exceptions.</p></li><li><strong>Return → decision → finance</strong><p class="muted">Evidence and support decisions feed a separate, provider-confirmed refund workflow.</p></li></ul>`)}<div class="workflow-card"><div class="eyebrow">Connected operations</div><h2>Every decision has context.</h2><p>Open a record to see related orders, merchant details, submitted evidence, and its activity history.</p>${link("View workspace settings", "settings")}</div></div></div>`
   );
 }
 function list(data) {
@@ -333,7 +427,6 @@ function detail(data) {
   const draft = state.drafts.get(`${r.section}/${r.id}/note`) || "";
   let body = "";
   if (r.section === "merchants") {
-    const detailsPanel = panel("Record details", recordFacts(r.section, record));
     const evidencePanel = panel(
       "Documents & media",
       `<div class="stack">${panel("Submitted images", media(data.media))}${panel("Documents", (data.documents || []).length ? data.documents.map((d) => `<article class="document">${icon("file")}<div><strong>${esc(d.name)}</strong><small>${esc(d.type || "Submitted document")} · ${esc(date(d.createdAt))}</small></div>${button("Open", "document", false, `data-id="${esc(d.id)}"`)}</article>`).join("") : empty("No documents supplied", "Supporting documents will appear here after submission."))}</div>`,
@@ -343,12 +436,16 @@ function detail(data) {
       "Internal notes",
       `<p class="small muted note-hint">Visible to authorized operators. Customer-facing replies belong in the support conversation.</p>${timeline(data.notes)}${recordPermission("add_note") ? `<form data-form="note">${textarea("note", "Add an internal note", draft, 'required minlength="3" maxlength="2000" data-draft="note"')}${errorSlot}<button class="btn primary" type="submit">Save note</button></form>` : ""}`,
     );
-    body = `<div class="stack merchant-unified-overview" id="merchant-unified-view">
-      <div id="details-section">${detailsPanel}</div>
-      <div id="evidence-section">${evidencePanel}</div>
-      <div id="activity-section">${activityPanel}</div>
-      <div id="notes-section">${notesPanel}</div>
-    </div>`;
+    if (r.tab === "details")
+      body = merchantReview(data, actions, draft);
+    else if (r.tab === "evidence")
+      body = evidencePanel;
+    else if (r.tab === "activity")
+      body = activityPanel;
+    else if (r.tab === "notes")
+      body = notesPanel;
+    else
+      body = merchantReview(data, actions, draft);
   } else {
     if (r.tab === "details")
       body = r.section === "catalogue"
@@ -433,7 +530,14 @@ function detail(data) {
     record.id !== state.viewer.id
   )
     extra.push(button("Edit roles", "edit-roles"));
-  const nextSteps = r.section === "catalogue" ? "" : panel("Next steps", `${record.actionBlockReason ? notice(record.actionBlockReason) : ""}<p class="small muted">${actions.length ? "Review the evidence before making a decision." : "No decisions are available for this record in its current state or for your role."}</p><div class="action-stack">${actions.map(([key, a]) => button(a.label, "command", key === "approve_merchant", `data-key="${key}"`)).join("")}${extra.join("")}</div>`);
+  const nextSteps =
+    r.section === "catalogue" ||
+    (r.section === "merchants" && r.tab === "details")
+      ? ""
+      : panel(
+          "Next steps",
+          `${record.actionBlockReason ? notice(record.actionBlockReason) : ""}<p class="small muted">${actions.length ? "Review the evidence before making a decision." : "No decisions are available for this record in its current state or for your role."}</p><div class="action-stack">${actions.map(([key, a]) => button(a.label, "command", key === "approve_merchant", `data-key="${key}"`)).join("")}${extra.join("")}</div>`,
+        );
   return `<div class="row between record-back">${link(`Back to ${s.title.toLowerCase()}`, r.section, "", { q: r.q, status: r.status, sort: r.sort, cursor: r.cursor }, "back-link")}${refreshTools()}</div><div class="detail-header"><span class="record-icon">${icon(s.icon)}</span><div><div class="eyebrow">${esc(record.reference || record.id)}</div><h1>${esc(title(record))}</h1></div>${badge(recordStatus(r.section, record))}</div><nav class="tabs" aria-label="Record views">${tabs.map(([key, label]) => `<a href="${esc(routeUrl(r.section, r.id, { tab: key, q: r.q, status: r.status, sort: r.sort, cursor: r.cursor }))}" ${key === r.tab ? 'aria-current="page"' : ""}>${label}</a>`).join("")}</nav><div class="detail-grid ${r.section === "catalogue" ? "catalogue-detail-grid" : ""}"><div>${body}</div><aside class="stack">${nextSteps}${panel("Connected records", relatedLinks(record))}${panel(
     "Record context",
     facts([
@@ -611,6 +715,177 @@ function catalogueReview(data, actions) {
         <div class="catalogue-section-card">
           <h3>Listing activity</h3>
           ${timeline(data.activity)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+function merchantReview(data, actions, draft = "") {
+  const record = data.record;
+  const isAwaitingReview =
+    ["in_review", "not_registered"].includes(record.registrationState) &&
+    !["suspended", "rejected"].includes(record.sellingStatus);
+  const isApproved =
+    record.registrationState === "registered" &&
+    record.sellingStatus === "active";
+  const isSuspended = record.sellingStatus === "suspended";
+
+  const docs = data.documents || [];
+  const mediaItems = (data.media || []).filter((m) => safeHttps(m.url));
+
+  return `
+    <div class="merchant-review-component">
+      <!-- HERO REVIEW CARD -->
+      <div class="merchant-hero-card">
+        <div class="merchant-hero-header">
+          <div class="merchant-hero-brand">
+            <span class="merchant-hero-icon">${icon("store")}</span>
+            <div>
+              <div class="merchant-hero-eyebrow">
+                <span class="tag code">@${esc(record.storeSlug || record.id.slice(0, 8))}</span>
+                ${record.registrationNumber ? `<span class="tag cac">CAC: ${esc(record.registrationNumber)}</span>` : ""}
+              </div>
+              <h2 class="merchant-hero-title">${esc(record.name || record.legalName || "Merchant")}</h2>
+              <p class="small muted">Storefront: <a class="merchant-store-link" href="/store/${esc(record.storeSlug)}" target="_blank" rel="noopener noreferrer">/store/${esc(record.storeSlug)}</a></p>
+            </div>
+          </div>
+          <div class="merchant-hero-badges">
+            ${badge(recordStatus("merchants", record))}
+            <span class="tag ${isApproved ? "good" : isAwaitingReview ? "warn" : "muted"}">
+              Selling: ${esc(human(record.sellingStatus || "pending_verification"))}
+            </span>
+          </div>
+        </div>
+
+        <!-- DECISION ACTION BANNER (When awaiting approval) -->
+        ${isAwaitingReview ? `
+          <div class="merchant-decision-hero">
+            <div class="merchant-decision-copy">
+              <span class="decision-eyebrow">${icon("shield")} REGISTRATION REVIEW & DECISION</span>
+              <h3>Review and decide this merchant registration</h3>
+              <p class="small muted">Confirm business entity identity and verify selling eligibility on SellFastBuyFast.</p>
+            </div>
+            <div class="merchant-decision-actions">
+              ${canAct("approve_merchant", record, state.viewer) ? button("Verify & Approve Merchant", "command", true, 'data-key="approve_merchant"') : ""}
+              ${canAct("reject_merchant", record, state.viewer) ? button("Return for corrections", "command", false, 'data-key="reject_merchant"') : ""}
+            </div>
+          </div>
+        ` : isApproved ? `
+          <div class="merchant-status-callout good">
+            <span class="status-callout-icon">${icon("check")}</span>
+            <div>
+              <strong>Verified Merchant</strong>
+              <p class="small muted">Business credentials have been verified. Published listings are discoverable by shoppers.</p>
+            </div>
+            ${canAct("suspend_merchant", record, state.viewer) ? `<div class="action-wrap">${button("Suspend merchant", "command", false, 'data-key="suspend_merchant"')}</div>` : ""}
+          </div>
+        ` : isSuspended ? `
+          <div class="merchant-status-callout warn">
+            <span class="status-callout-icon">${icon("alert")}</span>
+            <div>
+              <strong>Merchant is suspended</strong>
+              <p class="small muted">Storefront and product listings are hidden from shoppers.</p>
+            </div>
+            ${canAct("restore_merchant", record, state.viewer) ? `<div class="action-wrap">${button("Restore merchant", "command", true, 'data-key="restore_merchant"')}</div>` : ""}
+          </div>
+        ` : ""}
+      </div>
+
+      <!-- STRUCTURED DETAILS GRID -->
+      <div class="merchant-cards-grid">
+        <!-- Business & Legal Entity Card -->
+        <div class="panel merchant-info-card">
+          <div class="panel-head">
+            <h2>${icon("file")} Business identity</h2>
+          </div>
+          <div class="panel-body">
+            <dl class="merchant-facts-list">
+              <div><dt>Business name</dt><dd><strong>${esc(record.name || "—")}</strong></dd></div>
+              <div><dt>Legal entity name</dt><dd>${esc(record.legalName || record.name || "—")}</dd></div>
+              <div><dt>CAC Registration</dt><dd>${record.registrationNumber ? `<span class="badge-cac">${esc(record.registrationNumber)}</span>` : '<span class="muted">Not provided</span>'}</dd></div>
+              <div><dt>Registration state</dt><dd>${badge(recordStatus("merchants", record))}</dd></div>
+              <div><dt>Storefront handle</dt><dd><code>@${esc(record.storeSlug || "—")}</code></dd></div>
+            </dl>
+          </div>
+        </div>
+
+        <!-- Contact & Operating Address Card -->
+        <div class="panel merchant-info-card">
+          <div class="panel-head">
+            <h2>${icon("mail")} Contact & location</h2>
+          </div>
+          <div class="panel-body">
+            <dl class="merchant-facts-list">
+              <div><dt>Contact email</dt><dd>${record.email ? `<a class="contact-link" href="mailto:${esc(record.email)}">${icon("mail")} ${esc(record.email)}</a>` : "—"}</dd></div>
+              <div><dt>Phone number</dt><dd>${record.phone ? `<a class="contact-link" href="tel:${esc(record.phone)}">${icon("phone")} ${esc(record.phone)}</a>` : "—"}</dd></div>
+              <div><dt>Physical address</dt><dd>${esc(record.address || "—")}</dd></div>
+              <div><dt>Registered date</dt><dd>${esc(date(record.createdAt))}</dd></div>
+              <div><dt>Last submission</dt><dd>${esc(date(record.submittedAt || record.updatedAt))}</dd></div>
+            </dl>
+          </div>
+        </div>
+      </div>
+
+      <!-- Verification Evidence & Documents -->
+      <div class="panel merchant-evidence-card">
+        <div class="panel-head">
+          <h2>${icon("shield")} Verification documents & evidence</h2>
+          <span class="muted small">${docs.length ? `${docs.length} document(s)` : "No upload required"}</span>
+        </div>
+        <div class="panel-body">
+          ${docs.length ? `
+            <div class="merchant-docs-grid">
+              ${docs.map((d) => `
+                <article class="merchant-doc-item">
+                  <div class="doc-icon-wrap">${icon("file")}</div>
+                  <div class="doc-info">
+                    <strong>${esc(d.name || "Document")}</strong>
+                    <small class="muted">${esc(human(d.type || "verification"))} · ${esc(date(d.createdAt))}</small>
+                  </div>
+                  ${button("Open document", "document", false, `data-id="${esc(d.id)}"`)}
+                </article>
+              `).join("")}
+            </div>
+          ` : `
+            <div class="notice">
+              <span>Basic business registration submitted. No extra KYC documents attached.</span>
+            </div>
+          `}
+          ${mediaItems.length ? `
+            <div class="merchant-media-section">
+              <h4>Storefront photos</h4>
+              ${media(mediaItems)}
+            </div>
+          ` : ""}
+        </div>
+      </div>
+
+      <!-- Internal Notes & Activity Preview -->
+      <div class="merchant-cards-grid">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>${icon("edit")} Internal notes</h2>
+          </div>
+          <div class="panel-body">
+            <p class="small muted note-hint">Visible to authorized operators. Notes are retained in the permanent audit record.</p>
+            ${timeline(data.notes)}
+            ${recordPermission("add_note") ? `
+              <form data-form="note" class="merchant-quick-note">
+                ${textarea("note", "Add operator note", draft, 'required minlength="3" maxlength="2000" data-draft="note" placeholder="Add an internal note about this merchant or verification review..."')}
+                ${errorSlot}
+                <button class="btn primary" type="submit">Save note</button>
+              </form>
+            ` : ""}
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>${icon("clock")} Recent audit activity</h2>
+          </div>
+          <div class="panel-body">
+            ${timeline((data.activity || []).slice(0, 8))}
+          </div>
         </div>
       </div>
     </div>
@@ -977,6 +1252,19 @@ function setMenu(open) {
 window.addEventListener("resize", () => {
   if (window.innerWidth > 760) setMenu(false);
 });
+if (typeof document !== "undefined" && document.addEventListener) {
+  document.addEventListener("visibilitychange", () => {
+    if (
+      document.visibilityState === "visible" &&
+      state.route?.section === "overview" &&
+      state.viewer &&
+      !state.busy &&
+      !dialog?.open
+    ) {
+      void loadRoute({ focus: false });
+    }
+  });
+}
 document.addEventListener("click", async (event) => {
   if (state.busy && event.target.closest('a[href^="#"]')) {
     event.preventDefault();
@@ -1298,13 +1586,6 @@ async function establishIdentity() {
   app.innerHTML =
     '<main id="main" class="boot"><p role="status">Verifying your staff access…</p></main>';
   try {
-    const { data: assurance, error: assuranceError } =
-      await state.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (assuranceError) throw assuranceError;
-    if (assurance.nextLevel === "aal2" && assurance.currentLevel !== "aal2") {
-      await mfaDialog(true);
-      return;
-    }
     const viewer = await state.api.request("/v1/admin/me");
     if (
       !viewer?.id ||
@@ -1316,9 +1597,14 @@ async function establishIdentity() {
         "FORBIDDEN",
         403,
       );
-    if (viewer.requireMfa && assurance.currentLevel !== "aal2") {
-      await mfaDialog(true);
-      return;
+    if (viewer.requireMfa) {
+      const { data: assurance, error: assuranceError } =
+        await state.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (assuranceError) throw assuranceError;
+      if (assurance.currentLevel !== "aal2") {
+        await mfaDialog(true);
+        return;
+      }
     }
     if (run !== state.identityRun) return;
     if (state.lastViewerId && state.lastViewerId !== viewer.id)
@@ -1354,6 +1640,10 @@ function clearStoredSession() {
   }
 }
 async function endSession(scope = "local") {
+  if (state.overviewTimer) {
+    clearInterval(state.overviewTimer);
+    state.overviewTimer = null;
+  }
   ++state.identityRun;
   state.controller?.abort();
   state.viewer = null;

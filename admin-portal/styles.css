@@ -1225,6 +1225,378 @@ tbody tr:hover {
   padding: 4px 10px;
   border-radius: 6px;
 }
+
+/* Overview: Pending Merchant Registrations */
+.pending-merchants-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pending-merchant-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(24, 78, 60, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.pending-merchant-card:hover {
+  border-color: #a4c2ad;
+  box-shadow: 0 4px 14px rgba(24, 78, 60, 0.08);
+}
+.pending-merchant-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.pending-merchant-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pending-merchant-header .record-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--green-soft);
+  color: var(--green);
+  display: grid;
+  place-content: center;
+  flex-shrink: 0;
+}
+.pending-merchant-name {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.pending-merchant-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tag.cac,
+.badge-cac {
+  background: #eef4ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.3px;
+  display: inline-flex;
+  align-items: center;
+}
+.pending-merchant-contacts {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pending-merchant-contacts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pending-merchant-contacts svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.75;
+}
+.pending-merchant-contacts a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pending-merchant-actions {
+  flex-shrink: 0;
+}
+.pending-merchant-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  padding: 10px 18px;
+  box-shadow: 0 2px 8px rgba(24, 78, 60, 0.2);
+}
+@media (max-width: 680px) {
+  .pending-merchant-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .pending-merchant-actions {
+    width: 100%;
+  }
+  .pending-merchant-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Unified Merchant Review Component */
+.merchant-review-component {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.merchant-hero-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.merchant-hero-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.merchant-hero-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.merchant-hero-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: var(--green-soft);
+  color: var(--green);
+  display: grid;
+  place-content: center;
+  flex-shrink: 0;
+}
+.merchant-hero-icon svg {
+  width: 28px;
+  height: 28px;
+}
+.merchant-hero-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.merchant-hero-title {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 0 4px;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.merchant-store-link {
+  color: var(--green);
+  text-decoration: underline;
+  font-weight: 500;
+  font-family: monospace;
+  font-size: 12px;
+}
+.merchant-hero-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.merchant-decision-hero {
+  background: linear-gradient(135deg, #f7faf7 0%, #edf5ef 100%);
+  border: 1.5px solid #b2d5be;
+  border-radius: 12px;
+  padding: 18px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  box-shadow: 0 2px 10px rgba(24, 78, 60, 0.05);
+}
+.merchant-decision-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.decision-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.decision-eyebrow svg {
+  width: 14px;
+  height: 14px;
+}
+.merchant-decision-copy h3 {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.merchant-decision-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.merchant-decision-actions .btn.command.primary {
+  background: var(--green);
+  color: #fff;
+  padding: 11px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(24, 78, 60, 0.25);
+}
+.merchant-status-callout {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.merchant-status-callout.good {
+  background: #edf7ee;
+  border: 1px solid #b7e0bb;
+  color: #165b26;
+}
+.merchant-status-callout.warn {
+  background: #fff8eb;
+  border: 1px solid #fedb9b;
+  color: #87570e;
+}
+.merchant-status-callout .status-callout-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.merchant-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+@media (max-width: 800px) {
+  .merchant-cards-grid {
+    grid-template-columns: 1fr;
+  }
+  .merchant-decision-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+.merchant-facts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+}
+.merchant-facts-list > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f3ed;
+  font-size: 13px;
+}
+.merchant-facts-list > div:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.merchant-facts-list dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.merchant-facts-list dd {
+  margin: 0;
+  text-align: right;
+  color: var(--ink);
+}
+.contact-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.merchant-docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.merchant-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fbfcfb;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.merchant-doc-item .doc-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #ebf2ec;
+  color: var(--green);
+  display: grid;
+  place-content: center;
+  flex-shrink: 0;
+}
+.merchant-doc-item .doc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.merchant-doc-item .doc-info strong {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.merchant-doc-item .doc-info small {
+  font-size: 11px;
+}
+.merchant-media-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.merchant-media-section h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.merchant-quick-note {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .timeline {
   display: grid;
   gap: 0;

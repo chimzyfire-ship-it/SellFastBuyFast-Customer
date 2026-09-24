@@ -85,6 +85,23 @@ adminRouter.get(
     const counts = await query(
       sql`select section,status,count(*)::int as count from admin_workspace_records where section=any(${textArray(permitted)}) group by section,status`,
     );
+    const [pendingMerchantRow] = permitted.includes("merchants")
+      ? await query<{ count: number }>(
+          sql`select count(*)::int as count from merchants where status not in ('suspended', 'rejected') and registration_state in ('in_review', 'not_registered')`,
+        )
+      : [{ count: 0 }];
+    const pendingMerchantCount = Number(pendingMerchantRow?.count ?? 0);
+
+    const pendingMerchants = permitted.includes("merchants")
+      ? await query(
+          sql`select m.id, m.business_name as "businessName", m.slug, m.contact_email as "contactEmail", m.contact_phone as "contactPhone", m.registration_state as "registrationState", m.status, m.created_at as "createdAt", m.updated_at as "updatedAt", v.cac_number as "cacNumber"
+              from merchants m
+              left join lateral (select cac_number from merchant_verifications where merchant_id=m.id order by updated_at desc limit 1) v on true
+              where m.status not in ('suspended', 'rejected') and m.registration_state in ('in_review', 'not_registered')
+              order by m.updated_at desc limit 10`,
+        )
+      : [];
+
     const definitions = [
       ["merchants", "in_review", "Merchant registrations"],
       ["catalogue", "pending_approval", "Listings to review"],
@@ -96,16 +113,24 @@ adminRouter.get(
     ];
     const queues = definitions
       .filter(([section]) => permitted.includes(section))
-      .map(([section, status, label]) => ({
-        section,
-        status,
-        label,
-        count: Number(
-          counts.find((c) => c.section === section && c.status === status)
-            ?.count ?? 0,
-        ),
-        description: "Open the review queue",
-      }));
+      .map(([section, status, label]) => {
+        let count = 0;
+        if (section === "merchants") {
+          count = pendingMerchantCount;
+        } else {
+          count = Number(
+            counts.find((c) => c.section === section && c.status === status)
+              ?.count ?? 0,
+          );
+        }
+        return {
+          section,
+          status,
+          label,
+          count,
+          description: "Open the review queue",
+        };
+      });
     const resources = permitted.map((s) => sections[s].resource);
     const activity = await query(
       sql`select a.id,a.action,p.full_name as "actorName",a.created_at as "createdAt",a.metadata->>'note' as note from audit_events a left join profiles p on p.id=a.actor_id where a.resource_type=any(${textArray(resources)}) order by a.created_at desc limit 12`,
@@ -118,6 +143,7 @@ adminRouter.get(
           .slice(0, 4)
           .map((q) => ({ ...q, value: q.count, format: "count" })),
         queues,
+        pendingMerchants,
         activity,
       },
     });

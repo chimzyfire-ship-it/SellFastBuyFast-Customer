@@ -185,7 +185,15 @@ export async function listRecords(
   const cursor = input.cursor ? codec.decode(input.cursor, scope) : null;
   const timestamp = sql`w.${sql.identifier(column)}`;
   const conditions = [sql`w.section=${section}`];
-  if (input.status) conditions.push(sql`w.status=${input.status}`);
+  if (input.status) {
+    if (section === "merchants" && input.status === "in_review") {
+      conditions.push(
+        sql`w.status in ('in_review', 'not_registered') and (w.record->>'sellingStatus' is null or w.record->>'sellingStatus' not in ('suspended', 'rejected'))`,
+      );
+    } else {
+      conditions.push(sql`w.status=${input.status}`);
+    }
+  }
   if (input.q) {
     const term = "%" + input.q.replace(/[\\%_]/g, "\\$&") + "%";
     conditions.push(
