@@ -167,6 +167,47 @@ test("Non-payment purchase lifecycle through real SQL and HTTP", async (t) => {
       });
       return { status: response.status, body: (await response.json()) as any };
     }
+    await t.test(
+      "A confirmed identity without a merchant receives an onboarding contract",
+      async () => {
+        const workspace = await request("/v1/vendor/me", outsider);
+        assert.equal(workspace.status, 200, JSON.stringify(workspace.body));
+        assert.deepEqual(workspace.body.data.merchants, []);
+      },
+    );
+    await t.test("Health fails closed when the database cannot be reached", async () => {
+      const unavailable = express();
+      const unavailableDatabase = {
+        execute: async () => {
+          throw Error("database unavailable");
+        },
+      } as unknown as Database;
+      unavailable.use((_req, _res, next) =>
+        withDatabase(unavailableDatabase, next),
+      );
+      unavailable.use(createApp());
+      const unavailableServer = await new Promise<import("node:http").Server>(
+        (resolve, reject) => {
+          const server = unavailable.listen(0, "127.0.0.1", () =>
+            resolve(server),
+          );
+          server.once("error", reject);
+        },
+      );
+      try {
+        const url = `http://127.0.0.1:${(unavailableServer.address() as import("node:net").AddressInfo).port}/health`;
+        const response = await fetch(url);
+        assert.equal(response.status, 503);
+        assert.deepEqual(await response.json(), {
+          status: "unhealthy",
+          service: "@sellfastbuyfast/core-api",
+        });
+      } finally {
+        await new Promise<void>((resolve) =>
+          unavailableServer.close(() => resolve()),
+        );
+      }
+    });
     await t.test('Vendor photo draft enters admin review and appears to shoppers only after approval', async () => {
       const [bucket] = await query(sql`select * from storage.buckets where id='product-media'`);
       assert.equal(bucket.public, true);

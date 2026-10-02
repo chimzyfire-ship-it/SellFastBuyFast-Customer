@@ -16,10 +16,11 @@ import { useNavigation } from '../../navigation/NavigationContext';
 import ProductCard from '../../components/ProductCard';
 
 export default function SavedScreen() {
-  const { wishlist, toggleWishlist } = useApp();
+  const { wishlist, toggleWishlist, liveProducts } = useApp();
   const { navigate, goBack } = useNavigation();
 
-  const savedProducts = PRODUCTS.filter((p) => wishlist.includes(p.id));
+  const allProducts = (liveProducts && liveProducts.length > 0) ? liveProducts : PRODUCTS;
+  const savedProducts = allProducts.filter((p) => wishlist.includes(p.id));
 
   return (
     <SafeAreaView style={styles.container}>

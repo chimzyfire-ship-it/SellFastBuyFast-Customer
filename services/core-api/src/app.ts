@@ -36,7 +36,7 @@ export function createApp(): Express {
 
   const configuredOrigins = (process.env.CORS_ORIGINS ?? "")
     .split(",")
-    .map((origin) => origin.trim())
+    .map((origin: string) => origin.trim())
     .filter(Boolean);
 
   app.use(
@@ -84,14 +84,24 @@ export function createApp(): Express {
   app.use(morgan(config.isProduction ? "combined" : "dev"));
   app.use(rateLimit({ windowMs: 60_000, max: 300 }));
 
-  app.get("/health", (_req: Request, res: Response) => {
-    res.json({
-      status: "healthy",
-      timestamp: new Date().toISOString(),
-      service: "@sellfastbuyfast/core-api",
-      version: "1.0.0",
-      capabilities: { productMediaUpload: true, catalogModeration: true },
-    });
+  app.get("/health", async (_req: Request, res: Response) => {
+    try {
+      // A process that answers HTTP but cannot reach the database is not
+      // healthy for authentication or merchant workspaces.
+      await db.execute(sql`select 1`);
+      res.json({
+        status: "healthy",
+        timestamp: new Date().toISOString(),
+        service: "@sellfastbuyfast/core-api",
+        version: "1.0.0",
+        capabilities: { productMediaUpload: true, catalogModeration: true },
+      });
+    } catch {
+      res.status(503).json({
+        status: "unhealthy",
+        service: "@sellfastbuyfast/core-api",
+      });
+    }
   });
 
   app.get("/ready", async (_req, res) => {

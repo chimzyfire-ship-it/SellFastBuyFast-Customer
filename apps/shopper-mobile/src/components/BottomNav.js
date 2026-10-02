@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
   floatingBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justify.content: 'space-around',
+    justifyContent: 'space-around',
     height: 56,
   },
   tabItem: {

@@ -90,10 +90,10 @@ function AppContent() {
 
   useEffect(() => {
     if (['home'].includes(currentRoute.name)) setActiveTab('home');
-    else if (['search', 'category'].includes(currentRoute.name)) setActiveTab('search');
+    else if (['category', 'categories'].includes(currentRoute.name)) setActiveTab('categories');
     else if (['bag', 'checkout-address', 'checkout-delivery', 'checkout-review'].includes(currentRoute.name)) setActiveTab('cart');
-    else if (['orders-list', 'orders', 'order-detail', 'order-tracking', 'return-request', 'order-return', 'return-status', 'order-cancel', 'refund-status', 'create-ticket', 'support-ticket', 'create-dispute'].includes(currentRoute.name)) setActiveTab('orders');
-    else if (['account', 'account-addresses', 'account-notifications', 'account-privacy', 'account-saved', 'saved'].includes(currentRoute.name)) setActiveTab('account');
+    else if (['saved', 'account-saved', 'wishlist'].includes(currentRoute.name)) setActiveTab('wishlist');
+    else if (['account', 'account-addresses', 'account-notifications', 'account-privacy', 'orders', 'orders-list'].includes(currentRoute.name)) setActiveTab('account');
   }, [currentRoute.name]);
 
   const selectTab = (tabId) => {
@@ -102,14 +102,14 @@ function AppContent() {
       case 'home':
         navigate('home');
         break;
-      case 'search':
-        navigate('search');
+      case 'categories':
+        navigate('category');
         break;
       case 'cart':
         navigate('bag');
         break;
-      case 'orders':
-        navigate('orders-list');
+      case 'wishlist':
+        navigate('saved');
         break;
       case 'account':
         navigate('account');
@@ -222,12 +222,16 @@ function AppContent() {
   const showTopHeader = ['home'].includes(currentRoute.name);
   const showBottomNav = [
     'home',
-    'search',
+    'category',
+    'categories',
+    'bag',
+    'saved',
+    'wishlist',
+    'account-saved',
+    'account',
     'orders-list',
     'orders',
-    'account',
-    'account-saved',
-    'saved',
+    'search',
   ].includes(currentRoute.name);
 
   const mainContent = (
@@ -271,6 +275,7 @@ function AppContent() {
           activeTab={activeTab}
           onSelectTab={selectTab}
           cartCount={cart.reduce((total, i) => total + i.quantity, 0)}
+          wishlistCount={wishlist ? wishlist.length : 0}
           activeOrdersCount={activeOrdersCount}
         />
       )}
