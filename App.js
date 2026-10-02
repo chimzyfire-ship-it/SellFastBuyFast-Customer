@@ -84,7 +84,7 @@ import CreateDisputeScreen from './src/screens/orders/CreateDisputeScreen';
 
 function AppContent() {
   const { currentRoute, navigate } = useNavigation();
-  const { cart, activeOrdersCount, unreadNotifsCount, toastMessage, showToast, isOffline } = useApp();
+  const { cart, wishlist = [], activeOrdersCount, unreadNotifsCount, toastMessage, showToast, isOffline } = useApp();
 
   const [activeTab, setActiveTab] = useState('home');
 
@@ -274,9 +274,9 @@ function AppContent() {
         <BottomNav
           activeTab={activeTab}
           onSelectTab={selectTab}
-          cartCount={cart.reduce((total, i) => total + i.quantity, 0)}
-          wishlistCount={wishlist ? wishlist.length : 0}
-          activeOrdersCount={activeOrdersCount}
+          cartCount={Array.isArray(cart) ? cart.reduce((total, i) => total + (i.quantity || 1), 0) : 0}
+          wishlistCount={Array.isArray(wishlist) ? wishlist.length : 0}
+          activeOrdersCount={activeOrdersCount || 0}
         />
       )}
     </SafeAreaView>
