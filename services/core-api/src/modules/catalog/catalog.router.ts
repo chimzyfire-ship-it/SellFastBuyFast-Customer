@@ -3,20 +3,111 @@ import { sendError } from '../../lib/errors.js';
 import { Router, Request, Response } from 'express';
 import { db } from '../../db/client.js';
 import { categories, products, productVariants, productMedia, merchants, inventoryLevels } from '../../db/schema.js';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, isNull, ilike } from 'drizzle-orm';
 
 export const catalogRouter = Router();
 
 catalogRouter.get('/content', async (_req, res) => {try {res.json({success:true,data:await storefrontContent()});}catch(error){sendError(res,error);}});
 
-// GET /v1/catalog/categories
-catalogRouter.get('/categories', async (_req: Request, res: Response) => {
+// GET /v1/catalog/categories/taxonomy
+catalogRouter.get('/categories/taxonomy', async (_req: Request, res: Response) => {
   try {
-    const list = await db
+    const allActive = await db
       .select()
       .from(categories)
       .where(eq(categories.isActive, true))
       .orderBy(categories.sortOrder);
+
+    const roots = allActive.filter((c) => !c.parentId);
+    const taxonomy = roots.map((root) => {
+      const children = allActive.filter((child) => child.parentId === root.id);
+      return {
+        id: root.id,
+        name: root.name,
+        slug: root.slug,
+        icon: root.icon,
+        bannerTitle: 'SEE ALL PRODUCTS',
+        subcategories: children,
+      };
+    });
+
+    res.json({ success: true, data: taxonomy });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'CATALOG_ERROR', message: err.message } });
+  }
+});
+
+// GET /v1/catalog/categories/:slug/taxonomy
+catalogRouter.get('/categories/:slug/taxonomy', async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params;
+    const [category] = await db
+      .select()
+      .from(categories)
+      .where(and(eq(categories.slug, slug), eq(categories.isActive, true)))
+      .limit(1);
+
+    if (!category) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Category not found.' } });
+      return;
+    }
+
+    const subcategories = await db
+      .select()
+      .from(categories)
+      .where(and(eq(categories.parentId, category.id), eq(categories.isActive, true)))
+      .orderBy(categories.sortOrder);
+
+    res.json({
+      success: true,
+      data: {
+        id: category.id,
+        name: category.name,
+        slug: category.slug,
+        icon: category.icon,
+        bannerTitle: 'SEE ALL PRODUCTS',
+        subcategories,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'CATALOG_ERROR', message: err.message } });
+  }
+});
+
+// GET /v1/catalog/categories
+catalogRouter.get('/categories', async (req: Request, res: Response) => {
+  try {
+    const { parentId, tree, root } = req.query;
+
+    const baseConditions = [eq(categories.isActive, true)];
+    if (parentId && typeof parentId === 'string') {
+      baseConditions.push(eq(categories.parentId, parentId));
+    } else if (root === 'true') {
+      baseConditions.push(isNull(categories.parentId));
+    }
+
+    const list = await db
+      .select()
+      .from(categories)
+      .where(and(...baseConditions))
+      .orderBy(categories.sortOrder);
+
+    if (tree === 'true') {
+      const allActive = await db
+        .select()
+        .from(categories)
+        .where(eq(categories.isActive, true))
+        .orderBy(categories.sortOrder);
+
+      const roots = allActive.filter((c) => !c.parentId);
+      const treeData = roots.map((parent) => ({
+        ...parent,
+        subcategories: allActive.filter((child) => child.parentId === parent.id),
+      }));
+
+      res.json({ success: true, data: treeData });
+      return;
+    }
 
     res.json({ success: true, data: list });
   } catch (err: any) {
@@ -27,7 +118,7 @@ catalogRouter.get('/categories', async (_req: Request, res: Response) => {
 // GET /v1/catalog/products
 catalogRouter.get('/products', async (req: Request, res: Response) => {
   try {
-    const { categoryId, featured } = req.query;
+    const { categoryId, categorySlug, featured, search } = req.query;
 
     // Approval controls listing visibility. Store registration is reviewed separately;
     // inactive merchants remain hidden.
@@ -37,9 +128,14 @@ catalogRouter.get('/products', async (req: Request, res: Response) => {
     ];
     if (categoryId && typeof categoryId === 'string') {
       conditions.push(eq(products.categoryId, categoryId));
+    } else if (categorySlug && typeof categorySlug === 'string' && categorySlug !== 'all') {
+      conditions.push(eq(categories.slug, categorySlug));
     }
     if (featured === 'true') {
       conditions.push(eq(products.isFeatured, true));
+    }
+    if (search && typeof search === 'string' && search.trim()) {
+      conditions.push(ilike(products.title, `%${search.trim()}%`));
     }
 
     const productList = await db

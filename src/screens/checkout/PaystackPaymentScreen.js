@@ -18,7 +18,7 @@ WebBrowser.maybeCompleteAuthSession();
 const PAYMENTS_DEFERRED = process.env.EXPO_PUBLIC_PAYMENT_MODE !== 'paystack';
 
 export default function PaystackPaymentScreen() {
-  const { user, cart, addresses, selectedAddressId } = useApp();
+  const { user, cart, addresses, selectedAddressId, selectedDeliveryMethod } = useApp();
   const { activeModal, closeModal, navigate } = useNavigation();
   const visible = activeModal?.name === 'checkout-paystack' || activeModal?.name === 'paystack-gateway';
   const [busy, setBusy] = useState(false);
@@ -49,7 +49,30 @@ export default function PaystackPaymentScreen() {
   const startPayment = async () => {
     if (busy) return;
     if (PAYMENTS_DEFERRED) {
-      setError('Live payment is intentionally disabled. It will be completed as a separate integration module.');
+      const paymentRef = `DEMO-${Math.floor(100000 + Math.random() * 900000)}`;
+      const orderId = `DEMO-ORD-${Date.now()}`;
+      const merchantName = cart[0]?.product?.merchant || 'SellFast Verified Merchant';
+      const totalAmount = Number(estimatedTotal || 0);
+      const deliveryFee = selectedDeliveryMethod === 'express' ? 7500 : 4500;
+      closeModal();
+      navigate('checkout-processing', {
+        demo: true,
+        paymentRef,
+        orderId,
+        order: {
+          id: orderId,
+          totalAmount,
+          merchantName,
+          status: 'Placed',
+          apiStatus: 'demo',
+          date: new Date().toISOString(),
+          deliveryFee,
+          deliveryMethod: selectedDeliveryMethod === 'express' ? 'Express Priority Delivery' : 'Standard Door Delivery',
+          estimatedDelivery: selectedDeliveryMethod === 'express' ? 'Next business day' : 'Within 2 to 3 Business Days',
+          shippingAddress: address,
+          items: cart,
+        },
+      });
       return;
     }
     setBusy(true);
@@ -131,11 +154,11 @@ export default function PaystackPaymentScreen() {
           )}
 
           <TouchableOpacity
-            style={[styles.payButton, (busy || PAYMENTS_DEFERRED) && styles.disabled]}
+            style={[styles.payButton, busy && styles.disabled]}
             onPress={startPayment}
-            disabled={busy || PAYMENTS_DEFERRED}
+            disabled={busy}
             accessibilityRole="button"
-            accessibilityState={{ disabled: busy || PAYMENTS_DEFERRED, busy }}
+            accessibilityState={{ disabled: busy, busy }}
           >
             {busy ? (
               <ActivityIndicator color="#FFFFFF" />
@@ -143,7 +166,7 @@ export default function PaystackPaymentScreen() {
               <>
                 <Ionicons name="shield-checkmark" size={19} color="#C69B56" />
                 <Text style={styles.payButtonText}>
-                  {PAYMENTS_DEFERRED ? 'Payment Setup Deferred' : pendingPayment ? 'Reopen Paystack' : 'Continue to Paystack'}
+                  {PAYMENTS_DEFERRED ? 'Complete Demo Payment' : pendingPayment ? 'Reopen Paystack' : 'Continue to Paystack'}
                 </Text>
                 <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
               </>

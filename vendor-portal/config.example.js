@@ -7,4 +7,7 @@ window.SFBF_VENDOR_CONFIG = {
   apiUrl: 'http://localhost:4000',
   supabaseUrl: 'https://YOUR-PROJECT.supabase.co',
   supabaseAnonKey: 'YOUR-SUPABASE-ANON-KEY',
+  // Set to 'otp' only after custom SMTP and the Supabase OTP template pass
+  // services/core-api/scripts/check-auth-email.mjs.
+  emailConfirmationMode: 'link',
 };

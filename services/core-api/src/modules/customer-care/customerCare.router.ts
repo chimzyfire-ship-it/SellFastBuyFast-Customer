@@ -9,15 +9,18 @@ import {
   notifications,
   orders,
   outboxEvents,
+  profiles,
   returnRequests,
   shipments,
   supportTicketMessages,
   supportTickets,
 } from '../../db/schema.js';
 import { config } from '../../lib/config.js';
+import { supabaseAdmin } from '../../lib/supabase.js';
 import { errors, sendError } from '../../lib/errors.js';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { idempotency } from '../../middleware/idempotency.js';
+import { rateLimit } from '../../middleware/rateLimit.js';
 import { transitionOrder } from '../orders/orderStateMachine.js';
 import { assertDisputeEligibility, assertReturnEligibility } from './customerCare.policy.js';
 
@@ -29,6 +32,7 @@ const TicketSchema = z.object({
   subject: z.string().trim().min(4).max(180),
   message: z.string().trim().min(4).max(5000),
 });
+const DemoTicketSchema = TicketSchema.omit({ orderId: true });
 const MessageSchema = z.object({ message: z.string().trim().min(1).max(5000) });
 const ReturnSchema = z.object({
   orderId: z.string().uuid(),
@@ -56,6 +60,75 @@ function assertMerchantCaseAccess(req: Request, merchantId: string): void {
   const isPlatformStaff = req.user!.roles.some((role) => platformRoles.has(role));
   if (!isPlatformStaff && !req.user!.merchantIds.includes(merchantId)) throw errors.forbidden();
 }
+
+const DEMO_CONCIERGE_EMAIL = 'demo-concierge@shoplancia.invalid';
+
+async function demoConciergeCustomerId(): Promise<string> {
+  const [existing] = await db.select({ id: profiles.id }).from(profiles)
+    .where(eq(profiles.email, DEMO_CONCIERGE_EMAIL)).limit(1);
+  if (existing) return existing.id;
+
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    email: DEMO_CONCIERGE_EMAIL,
+    email_confirm: true,
+    user_metadata: { full_name: 'Demo concierge shopper' },
+  });
+  if (data.user) return data.user.id;
+
+  // A concurrent preview may have created the shared demo customer first.
+  const [created] = await db.select({ id: profiles.id }).from(profiles)
+    .where(eq(profiles.email, DEMO_CONCIERGE_EMAIL)).limit(1);
+  if (created) return created.id;
+  throw errors.unavailable('DEMO_SUPPORT_UNAVAILABLE', error?.message || 'Demo support is temporarily unavailable.');
+}
+
+// This route exists solely for non-production mock builds. It preserves the
+// same support queue and notification workflow without accepting a payment or
+// requiring a founder to distribute a customer login for a product demo.
+customerCareRouter.post('/demo-tickets', rateLimit({ windowMs: 15 * 60_000, max: 10 }), async (req, res) => {
+  try {
+    if (config.paymentMode === 'paystack') {
+      throw errors.notFound('Demo support is unavailable in this environment.');
+    }
+    const parsed = DemoTicketSchema.safeParse(req.body);
+    if (!parsed.success) throw errors.validation(parsed.error.message);
+    const customerId = await demoConciergeCustomerId();
+    const ticket = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(supportTickets).values({
+        userId: customerId,
+        category: parsed.data.category,
+        subject: parsed.data.subject,
+        body: parsed.data.message,
+      }).returning();
+      const [message] = await tx.insert(supportTicketMessages).values({
+        ticketId: created.id,
+        senderId: customerId,
+        senderRole: 'user',
+        body: parsed.data.message,
+      }).returning();
+      await tx.insert(outboxEvents).values({
+        type: 'support.demo_ticket_created',
+        payload: { ticketId: created.id, userId: customerId },
+      });
+      await tx.execute(sql`
+        insert into notifications(user_id,type,title,body,data)
+        select distinct access.id,
+          'support_ticket_created',
+          'New demo concierge ticket',
+          ${`“${created.subject}” requires a support response.`},
+          jsonb_build_object('section','support','ticketId',${created.id},'demo',true)
+        from admin_staff_access access
+        join user_roles roles on roles.user_id=access.id
+        where access.status='active'
+          and roles.role in ('support_agent','operations_admin')
+      `);
+      return { ...created, messages: [message] };
+    });
+    res.status(201).json({ success: true, data: ticket });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
 
 customerCareRouter.use(requireAuth);
 customerCareRouter.post('/account/deletion-request', idempotency('account-deletion-request'), async (req, res) => {

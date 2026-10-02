@@ -7,6 +7,7 @@ import { cancelOrder as cancelOrderRequest, listOrders } from '../services/order
 import {
   addSupportTicketMessage,
   createDispute as createDisputeApi,
+  createDemoSupportTicket as createDemoSupportTicketApi,
   createReturnRequest as createReturnRequestApi,
   createSupportTicket as createSupportTicketApi,
   listNotifications,
@@ -18,6 +19,7 @@ import {
 
 const AppContext = createContext();
 const MOCKS_ENABLED = process.env.EXPO_PUBLIC_ENABLE_MOCKS === 'true';
+const DEMO_MODE = process.env.EXPO_PUBLIC_PAYMENT_MODE !== 'paystack';
 const GUEST_USER = {
   id: null,
   name: 'Guest',
@@ -363,6 +365,10 @@ export const AppProvider = ({ children }) => {
     setCart([]);
   };
 
+  const addDemoOrder = (order) => {
+    setOrders((current) => current.some((item) => item.id === order.id) ? current : [order, ...current]);
+  };
+
   // Addresses Methods
   const addAddress = (newAddr) => {
     const created = {
@@ -405,9 +411,36 @@ export const AppProvider = ({ children }) => {
   // Support Ticket creation & message response
   const createSupportTicket = async (orderId, subject, category, messageText) => {
     try {
-      const newTicket = await createSupportTicketApi({ orderId, subject, category, message: messageText });
+      const input = { orderId, subject, category, message: messageText };
+      let newTicket;
+      let isLocalDemoTicket = false;
+      if (DEMO_MODE && !isAuthenticated) {
+        try {
+          newTicket = await createDemoSupportTicketApi(input);
+        } catch {
+          // The mobile preview remains usable while a local Core API restart or
+          // deployment is pending; the server path creates the admin alert.
+          isLocalDemoTicket = true;
+          newTicket = {
+            id: `DEMO-TCK-${Date.now()}`,
+            orderId,
+            subject,
+            category,
+            status: 'Open',
+            createdAt: new Date().toISOString(),
+            messages: [{
+              id: `DEMO-MSG-${Date.now()}`,
+              sender: 'user',
+              text: messageText,
+              time: new Date().toLocaleString(),
+            }],
+          };
+        }
+      } else {
+        newTicket = await createSupportTicketApi(input);
+      }
       setTickets((current) => [newTicket, ...current]);
-      showToast('Support ticket created');
+      showToast(isLocalDemoTicket ? 'Demo ticket saved. Restart the Core API to alert Admin.' : 'Support ticket created');
       return newTicket;
     } catch (err) {
       showToast(err.message || 'Unable to create support ticket');
@@ -489,6 +522,7 @@ export const AppProvider = ({ children }) => {
         updateCartQuantity,
         removeFromCart,
         clearCart,
+        addDemoOrder,
         pendingConflictProduct,
         isMerchantConflictOpen,
         replaceCartWithProduct,

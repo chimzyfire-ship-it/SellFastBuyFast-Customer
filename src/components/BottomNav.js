@@ -3,7 +3,13 @@ import { StyleSheet, Text, View, TouchableOpacity, Platform } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 
-export default function BottomNav({ activeTab, onSelectTab, cartCount = 0, activeOrdersCount = 0 }) {
+export default function BottomNav({
+  activeTab,
+  onSelectTab,
+  cartCount = 0,
+  wishlistCount = 0,
+  activeOrdersCount = 0,
+}) {
   const TABS = [
     {
       id: 'home',
@@ -12,24 +18,24 @@ export default function BottomNav({ activeTab, onSelectTab, cartCount = 0, activ
       iconFilled: 'home',
     },
     {
-      id: 'search',
-      label: 'Search',
-      iconOutline: 'search-outline',
-      iconFilled: 'search',
+      id: 'categories',
+      label: 'Categories',
+      iconOutline: 'list-outline',
+      iconFilled: 'list',
     },
     {
       id: 'cart',
-      label: 'Bag',
-      iconOutline: 'bag-handle-outline',
-      iconFilled: 'bag-handle',
+      label: 'Cart',
+      iconOutline: 'cart-outline',
+      iconFilled: 'cart',
       badge: cartCount,
     },
     {
-      id: 'orders',
-      label: 'Orders',
-      iconOutline: 'receipt-outline',
-      iconFilled: 'receipt',
-      badge: activeOrdersCount,
+      id: 'wishlist',
+      label: 'Wishlist',
+      iconOutline: 'heart-outline',
+      iconFilled: 'heart',
+      badge: wishlistCount,
     },
     {
       id: 'account',

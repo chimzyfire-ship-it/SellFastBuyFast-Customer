@@ -35,6 +35,14 @@ export async function createSupportTicket(input) {
   }));
 }
 
+export async function createDemoSupportTicket(input) {
+  return formatTicket(await apiRequest('/v1/customer-care/demo-tickets', {
+    method: 'POST',
+    auth: false,
+    body: input,
+  }));
+}
+
 export async function addSupportTicketMessage(ticketId, message) {
   return formatMessage(await apiRequest(`/v1/customer-care/tickets/${ticketId}/messages`, {
     method: 'POST',

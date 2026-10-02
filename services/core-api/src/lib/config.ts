@@ -5,7 +5,7 @@ dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 dotenv.config();
 
 function value(name: string, fallback = ""): string {
-  return process.env[name] ?? fallback;
+  return process.env[name]?.trim() || fallback;
 }
 
 function num(name: string, fallback: number): number {
@@ -70,9 +70,13 @@ function isBase64Key32(value: string): boolean {
   }
 }
 
-export const isProduction = process.env.NODE_ENV === "production";
+// Vercel sets VERCEL_ENV even when a project has not explicitly supplied
+// NODE_ENV. Treat both signals as production so an incomplete deployment
+// fails closed instead of serving routes that cannot reach Supabase/Postgres.
+export const isProduction =
+  value("NODE_ENV") === "production" || value("VERCEL_ENV") === "production";
 const paymentMode =
-  process.env.PAYMENT_MODE === "paystack" ? "paystack" : "mock";
+  value("PAYMENT_MODE") === "paystack" ? "paystack" : "mock";
 const platformCommissionBps = boundedInteger(
   "PLATFORM_COMMISSION_BPS",
   500,
@@ -82,21 +86,19 @@ const platformCommissionBps = boundedInteger(
 const returnWindowDays = boundedInteger("RETURN_WINDOW_DAYS", 7, 1, 30);
 
 export const config = {
-  env: process.env.NODE_ENV ?? "development",
+  env: value("NODE_ENV", "development"),
   isProduction,
   port: num("PORT", 4000),
 
   supabaseUrl: value("SUPABASE_URL"),
   supabaseServiceRoleKey: value("SUPABASE_SERVICE_ROLE_KEY"),
-  supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? "",
+  supabaseAnonKey: value("SUPABASE_ANON_KEY"),
 
   databaseUrl: value("DATABASE_URL"),
   operationsSecret: value("OPERATIONS_RUNNER_SECRET"),
   admin: {
-    requireMfa:
-      process.env.ADMIN_REQUIRE_MFA === "true" ||
-      (process.env.ADMIN_REQUIRE_MFA !== "false" && isProduction),
-    financeEnabled: process.env.ADMIN_FINANCE_ENABLED === "true",
+    requireMfa: value("ADMIN_REQUIRE_MFA") === "true",
+    financeEnabled: value("ADMIN_FINANCE_ENABLED") === "true",
     cursorSecret: value("ADMIN_CURSOR_SECRET"),
     portalUrl: value("ADMIN_PORTAL_URL"),
     smtpUrl: value("ADMIN_SMTP_URL"),
@@ -104,9 +106,9 @@ export const config = {
   },
 
   paymentMode,
-  paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
-  paystackBaseUrl: process.env.PAYSTACK_BASE_URL ?? "https://api.paystack.co",
-  kycEncryptionKey: process.env.KYC_ENCRYPTION_KEY ?? "",
+  paystackSecretKey: value("PAYSTACK_SECRET_KEY"),
+  paystackBaseUrl: value("PAYSTACK_BASE_URL", "https://api.paystack.co"),
+  kycEncryptionKey: value("KYC_ENCRYPTION_KEY"),
 
   pricing: {
     platformCommissionBps,

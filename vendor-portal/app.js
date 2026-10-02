@@ -5,17 +5,73 @@
 
 const root = document.getElementById('portal-root');
 
+function browserStorage(name) {
+  try {
+    return typeof window !== 'undefined' ? window[name] : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readStoredValue(storageName, key) {
+  try {
+    return browserStorage(storageName)?.getItem(key) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function writeStoredValue(storageName, key, value) {
+  try {
+    browserStorage(storageName)?.setItem(key, value);
+  } catch (_) {}
+}
+
+function removeStoredValue(storageName, key) {
+  try {
+    browserStorage(storageName)?.removeItem(key);
+  } catch (_) {}
+}
+
 // Runtime configuration is supplied by config.js locally, Vercel's public config endpoint, or project defaults.
 const isLocalDevelopmentHost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 const defaultFallbackConfig = {
   // A production browser must obtain its API location from Vercel's runtime
   // endpoint. Leaving this empty prevents a deployed portal from silently
   // attempting to call a developer's localhost server.
-  apiUrl: window.localStorage?.getItem('sfbf_api_url') || (isLocalDevelopmentHost ? 'http://localhost:4000' : 'https://sell-fast-buy-fast-core-api.vercel.app'),
-  supabaseUrl: window.localStorage?.getItem('sfbf_supabase_url') || 'https://fuqrhfxptybipxbzveyy.supabase.co',
-  supabaseAnonKey: window.localStorage?.getItem('sfbf_supabase_anon_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1cXJoZnhwdHliaXB4Ynp2ZXl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY3MjYsImV4cCI6MjEwMzUyMjcyNn0.Q240FBpikqiWaGytkVP1RWVHGA-ZpvdVicY9qf4pvWw',
+  apiUrl: readStoredValue('localStorage', 'sfbf_api_url') || (isLocalDevelopmentHost ? 'http://localhost:4000' : 'https://sell-fast-buy-fast-core-api.vercel.app'),
+  supabaseUrl: readStoredValue('localStorage', 'sfbf_supabase_url') || 'https://fuqrhfxptybipxbzveyy.supabase.co',
+  supabaseAnonKey: readStoredValue('localStorage', 'sfbf_supabase_anon_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1cXJoZnhwdHliaXB4Ynp2ZXl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY3MjYsImV4cCI6MjEwMzUyMjcyNn0.Q240FBpikqiWaGytkVP1RWVHGA-ZpvdVicY9qf4pvWw',
+  // Keep the current confirmation-link path active until the custom
+  // SMTP-backed OTP template has been verified in production.
+  emailConfirmationMode: 'link',
 };
 let config = { ...defaultFallbackConfig, ...window.SFBF_VENDOR_CONFIG };
+
+const OTP_CODE_LENGTH = 6;
+const OTP_EXPIRY_MINUTES = 10;
+const ACCOUNT_ACCESS_PATH = '/account-access.html';
+const PENDING_EMAIL_STORAGE_KEY = 'sfbf-pending-email';
+
+function usesEmailOtp() {
+  return config.emailConfirmationMode === 'otp';
+}
+
+function verificationAuthMode() {
+  return usesEmailOtp() ? 'verify-otp' : 'verify-email';
+}
+
+function verificationNotice(email, { resent = false } = {}) {
+  const address = normalizeEmail(email) || 'your email address';
+  if (usesEmailOtp()) {
+    return resent
+      ? `A fresh ${OTP_CODE_LENGTH}-digit verification code was sent to ${address}.`
+      : `Verification code sent to ${address}. Enter the ${OTP_CODE_LENGTH}-digit code below.`;
+  }
+  return resent
+    ? `A fresh confirmation email was sent to ${address}. Open its link, then sign in.`
+    : `Confirmation email sent to ${address}. Open its link, then sign in with your email and password.`;
+}
 
 
 // Global Reactive State
@@ -43,8 +99,8 @@ const state = {
   splashActive: true,
   busy: null,
   modal: null,
-  authMode: 'signin', // 'signin' | 'signup' | 'verify-otp' | 'recover' | 'onboarding'
-  pendingEmail: typeof window !== 'undefined' && window.sessionStorage ? (window.sessionStorage.getItem('sfbf-pending-email') || '') : '',
+  authMode: 'signin', // 'signin' | 'signup' | 'verify-email' | 'verify-otp' | 'recover' | 'onboarding'
+  pendingEmail: readStoredValue('sessionStorage', PENDING_EMAIL_STORAGE_KEY),
   pendingPassword: '',
   pendingFullName: '',
   pendingBusinessName: '',
@@ -61,7 +117,7 @@ const state = {
   notificationsChannel: null,
   notificationsPollTimer: null,
   sidebarOpen: false,
-  sidebarCollapsed: window.localStorage.getItem('sfbf-sidebar-collapsed') === 'true',
+  sidebarCollapsed: readStoredValue('localStorage', 'sfbf-sidebar-collapsed') === 'true',
   showPassword: false,
   workspaceError: '',
   partialDataError: '',
@@ -150,6 +206,70 @@ function safeUrl(value) {
   } catch {
     return '';
   }
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function accountAccessUrl() {
+  try {
+    return new URL(ACCOUNT_ACCESS_PATH, window.location.origin).href;
+  } catch (_) {
+    return '';
+  }
+}
+
+function supabaseAuthStoragePrefix() {
+  try {
+    const url = new URL(config.supabaseUrl);
+    const projectRef = url.hostname.split('.')[0];
+    return projectRef ? `sb-${projectRef}-auth-token` : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+// Supabase normally removes this key itself. Removing only this project's
+// auth keys as a fallback makes a deliberate sign-out recover even after a
+// failed storage write, a suspended tab, or a stale browser session.
+function clearPersistedSupabaseSession() {
+  const prefix = supabaseAuthStoragePrefix();
+  if (!prefix) return;
+  for (const storageName of ['localStorage', 'sessionStorage']) {
+    const storage = browserStorage(storageName);
+    if (!storage) continue;
+    try {
+      const keys = [];
+      for (let index = 0; index < storage.length; index++) {
+        const key = storage.key(index);
+        if (key && key.startsWith(prefix)) keys.push(key);
+      }
+      keys.forEach((key) => storage.removeItem(key));
+    } catch (_) {}
+  }
+}
+
+function persistPendingEmail(email) {
+  state.pendingEmail = normalizeEmail(email);
+  if (state.pendingEmail) {
+    writeStoredValue('sessionStorage', PENDING_EMAIL_STORAGE_KEY, state.pendingEmail);
+  } else {
+    removeStoredValue('sessionStorage', PENDING_EMAIL_STORAGE_KEY);
+  }
+}
+
+function clearPendingRegistrationState() {
+  state.pendingEmail = '';
+  state.pendingPassword = '';
+  state.pendingFullName = '';
+  state.pendingBusinessName = '';
+  state.pendingPhone = '';
+  removeStoredValue('sessionStorage', PENDING_EMAIL_STORAGE_KEY);
 }
 
 function isMediaUrlValid(value) {
@@ -262,7 +382,7 @@ class ApiError extends Error {
 function isAuthError(error) {
   if (!error) return false;
   if (error.code === 'UNAUTHORIZED' || error.status === 401 ||
-      ['refresh_token_not_found', 'refresh_token_already_used', 'session_not_found', 'session_expired'].includes(error.code) ||
+      ['refresh_token_not_found', 'refresh_token_already_used', 'session_not_found', 'session_expired', 'invalid_grant', 'bad_jwt'].includes(error.code) ||
       error.name === 'AuthSessionMissingError') return true;
   const msg = String(error.message || '').toLowerCase();
   return (
@@ -275,19 +395,15 @@ function isAuthError(error) {
   );
 }
 
-async function handleSessionExpired(message = 'Your session has expired. Please sign in again.') {
+function resetWorkspaceState({ clearAuthDraft = false } = {}) {
   state.dataRequestVersion++;
   workspaceGeneration++;
   workspaceLoadingPromise = null;
+  sessionRefreshPromise = null;
   state.dataAbortController?.abort();
   state.dataAbortController = null;
-  if (state.client) {
-    try {
-      await state.client.auth.signOut({ scope: 'local' });
-    } catch (e) {
-      console.warn('Could not clear local session:', e);
-    }
-  }
+  if (typeof teardownNotificationsSync === 'function') teardownNotificationsSync();
+
   state.session = null;
   state.merchants = [];
   state.merchant = null;
@@ -297,17 +413,85 @@ async function handleSessionExpired(message = 'Your session has expired. Please 
   state.returns = [];
   state.team = [];
   state.categories = [];
+  state.notifications = [];
+  state.unreadNotificationsCount = 0;
+  state.notificationsOpen = false;
+  state.notificationsLoading = false;
+  state.activeView = 'dashboard';
+  state.catalogueFilter = 'all';
+  state.catalogueSearch = '';
+  state.fulfilmentFilter = 'all';
+  state.fulfilmentSearch = '';
+  state.returnsFilter = 'all';
+  state.returnsSearch = '';
+  state.selectedOrder = null;
+  state.editingProductId = null;
+  state.productDraft = null;
+  state.productErrors = {};
+  state.selectedIdDocFile = null;
+  state.selectedUtilityBillFile = null;
+  state.sidebarOpen = false;
+  state.showPassword = false;
   state.workspaceError = '';
   state.partialDataError = '';
+  state.authError = '';
+  state.formError = '';
+  state.notice = null;
   state.modal = null;
   state.profileDraft = null;
   state.verificationData = null;
-  state.pendingPassword = '';
   state.busy = null;
   state.loading = false;
   state.authMode = 'signin';
+  if (clearAuthDraft) {
+    if (typeof clearPendingRegistrationState === 'function') {
+      clearPendingRegistrationState();
+    } else {
+      state.pendingEmail = '';
+      state.pendingPassword = '';
+      state.pendingFullName = '';
+      state.pendingBusinessName = '';
+      state.pendingPhone = '';
+    }
+  }
+}
+
+async function handleSessionExpired(message = 'Your session has expired. Please sign in again.') {
+  // Clear in-memory state first. This prevents a delayed auth callback or
+  // workspace response from restoring the screen the merchant just left.
+  resetWorkspaceState({ clearAuthDraft: true });
+  if (state.client) {
+    try {
+      await state.client.auth.signOut({ scope: 'local' });
+    } catch (e) {
+      console.warn('Could not clear local session:', e);
+    } finally {
+      if (typeof clearPersistedSupabaseSession === 'function') clearPersistedSupabaseSession();
+    }
+  } else {
+    if (typeof clearPersistedSupabaseSession === 'function') clearPersistedSupabaseSession();
+  }
   state.authError = message;
   render();
+}
+
+async function prepareForCredentialSignIn(email = '') {
+  // A password sign-in is always a new authority boundary. Purge only this
+  // project's persisted Supabase session before accepting credentials so a
+  // broken workspace/session from a previous browser visit cannot leak into
+  // the new sign-in attempt.
+  resetWorkspaceState({ clearAuthDraft: true });
+  // Preserve only the non-sensitive identifier for an inline retry. The
+  // password is already held in the submit handler's local variable.
+  state.pendingEmail = normalizeEmail(email);
+  state.authError = '';
+  try {
+    await state.client?.auth.signOut({ scope: 'local' });
+  } catch (error) {
+    console.warn('Could not clear the previous local session:', error);
+  } finally {
+    if (typeof clearPersistedSupabaseSession === 'function') clearPersistedSupabaseSession();
+  }
 }
 
 let sessionRefreshPromise = null;
@@ -571,11 +755,11 @@ function renderWorkspaceError() {
     <section class="auth-shell">
       <div class="auth-panel">
         <div class="auth-brand-mark">${icon('cloud-off')}</div>
-        <h1 class="auth-title">We could not load this merchant workspace</h1>
+        <h1 class="auth-title">The merchant workspace could not be reached</h1>
         <p class="auth-subtitle">${escapeHtml(state.workspaceError)}</p>
         <div style="display:flex;gap:12px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
           <button class="btn btn-primary" type="button" data-action="refresh-current">${icon('refresh-cw')} Try again</button>
-          <button class="btn btn-secondary" type="button" data-action="sign-out">${icon('log-out')} Sign Out</button>
+          <button class="btn btn-secondary" type="button" data-action="sign-out">${icon('log-out')} Sign out completely</button>
         </div>
       </div>
     </section>`;
@@ -593,7 +777,7 @@ function renderAuthHtml() {
     formHtml = `
       <form class="auth-box" id="verify-otp-form" novalidate>
         <h1 class="auth-title">Verify Your Email</h1>
-        <p class="auth-subtitle">We sent a 6-digit verification code to <strong style="color:var(--forest-900);">${escapeHtml(state.pendingEmail || 'your email')}</strong></p>
+        <p class="auth-subtitle">We sent a ${OTP_CODE_LENGTH}-digit verification code to <strong style="color:var(--forest-900);">${escapeHtml(state.pendingEmail || 'your email')}</strong></p>
 
         ${state.authError ? `<div class="error-summary" role="alert">${icon('alert-circle')} <span>${escapeHtml(state.authError)}</span></div>` : ''}
 
@@ -602,16 +786,17 @@ function renderAuthHtml() {
           <label class="form-label" for="otp-email">Your Account Email</label>
           <div class="input-wrapper">
             <span class="input-icon-left">${icon('mail')}</span>
-            <input class="input has-icon-left" id="otp-email" name="email" type="email" placeholder="vendor@business.ng" required />
+            <input class="input has-icon-left" id="otp-email" name="email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="vendor@business.ng" required />
           </div>
         </div>
         ` : ''}
 
         <div class="form-group">
-          <label class="form-label" for="otp-code" style="justify-content:center;margin-bottom:8px;">Enter 6-Digit Code</label>
+          <label class="form-label" for="otp-code" style="justify-content:center;margin-bottom:8px;">Enter ${OTP_CODE_LENGTH}-Digit Code</label>
           <div style="display:flex;justify-content:center;">
-            <input class="input" id="otp-code" name="otpCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="123456" style="font-family:var(--font-numbers);font-size:24px;letter-spacing:0.35em;text-align:center;font-weight:800;max-width:240px;height:52px;" autofocus required />
+            <input class="input" id="otp-code" name="otpCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{${OTP_CODE_LENGTH}}" maxlength="${OTP_CODE_LENGTH}" placeholder="123456" aria-describedby="otp-code-hint" style="font-family:var(--font-numbers);font-size:24px;letter-spacing:0.35em;text-align:center;font-weight:800;max-width:240px;height:52px;" autofocus required />
           </div>
+          <p class="field-help" id="otp-code-hint" style="text-align:center;margin-top:8px;">This code expires in ${OTP_EXPIRY_MINUTES} minutes. You can paste it from your email.</p>
         </div>
 
         <button class="btn btn-primary btn-full" type="submit" style="margin-top:12px;" ${state.busy === 'verify-otp' ? 'disabled' : ''}>
@@ -620,13 +805,42 @@ function renderAuthHtml() {
 
         <div class="otp-resend-row" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:18px;font-size:13.5px;color:var(--ink-muted);">
           <span>Didn't receive the email?</span>
-          <button type="button" class="btn-quiet" data-action="resend-otp" style="font-weight:700;">Resend OTP</button>
+          <button type="button" class="btn-quiet" data-action="resend-otp" style="font-weight:700;">Resend code</button>
         </div>
 
         <div style="text-align:center;margin-top:20px;font-size:13.5px;color:var(--ink-muted);">
           <button type="button" class="btn-quiet" data-action="switch-auth-mode" data-mode="signin">${icon('arrow-left')} Return to Sign In</button>
         </div>
       </form>`;
+  } else if (mode === 'verify-email') {
+    formHtml = `
+      <section class="auth-box" aria-labelledby="verify-email-title">
+        <h1 class="auth-title" id="verify-email-title">Confirm your email</h1>
+        <p class="auth-subtitle">We sent a confirmation link to <strong style="color:var(--forest-900);">${escapeHtml(state.pendingEmail || 'your email')}</strong>.</p>
+
+        ${state.authError ? `<div class="error-summary" role="alert">${icon('alert-circle')} <span>${escapeHtml(state.authError)}</span></div>` : ''}
+
+        <div class="callout-info-box" style="margin-top:20px;">
+          <div class="callout-info-icon">${icon('mail-check')}</div>
+          <div class="callout-info-text">
+            <strong>Open the link in this browser.</strong> After it confirms your email, return here and sign in with your email and password.
+          </div>
+        </div>
+
+        ${state.pendingEmail ? `
+        <div class="otp-resend-row" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:22px;font-size:13.5px;color:var(--ink-muted);">
+          <span>Didn't receive the email?</span>
+          <button type="button" class="btn-quiet" data-action="resend-otp" style="font-weight:700;">Resend confirmation email</button>
+        </div>` : ''}
+
+        <button class="btn btn-primary btn-full" type="button" data-action="switch-auth-mode" data-mode="signin" style="margin-top:24px;">
+          ${icon('log-in')} I've Confirmed My Email — Sign In
+        </button>
+
+        <div style="text-align:center;margin-top:18px;font-size:13.5px;color:var(--ink-muted);">
+          <button type="button" class="btn-quiet" data-action="switch-auth-mode" data-mode="signup">${icon('arrow-left')} Return to Registration</button>
+        </div>
+      </section>`;
   } else if (mode === 'signup') {
     formHtml = `
       <form class="auth-box" id="sign-up-form" novalidate>
@@ -636,7 +850,7 @@ function renderAuthHtml() {
         </div>
 
         <h1 class="auth-title">Register Store</h1>
-        <p class="auth-subtitle">Create your merchant account. You will verify 1 time via email OTP.</p>
+        <p class="auth-subtitle">Create your merchant account, then verify your email before accessing the workspace.</p>
         
         ${state.authError ? `<div class="error-summary" role="alert">${icon('alert-circle')} <span>${escapeHtml(state.authError)}</span></div>` : ''}
 
@@ -663,7 +877,7 @@ function renderAuthHtml() {
             <label class="form-label" for="email">Work Email</label>
             <div class="input-wrapper">
               <span class="input-icon-left">${icon('mail')}</span>
-              <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" placeholder="vendor@business.ng" value="${escapeAttribute(state.pendingEmail || '')}" required />
+              <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="vendor@business.ng" value="${escapeAttribute(state.pendingEmail || '')}" required />
             </div>
           </div>
 
@@ -680,8 +894,16 @@ function renderAuthHtml() {
           <label class="form-label" for="password">Create Password</label>
           <div class="input-wrapper">
             <span class="input-icon-left">${icon('lock')}</span>
-            <input class="input has-icon-left has-icon-right" id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" value="${escapeAttribute(state.pendingPassword || '')}" required placeholder="Min. 8 characters" />
+            <input class="input has-icon-left has-icon-right" id="password" name="password" type="${state.showPassword ? 'text' : 'password'}" autocomplete="new-password" minlength="12" value="${escapeAttribute(state.pendingPassword || '')}" required placeholder="At least 12 characters" />
             <button type="button" class="input-icon-right-btn" data-action="toggle-password" aria-label="${state.showPassword ? 'Hide password' : 'Show password'}" title="${state.showPassword ? 'Hide password' : 'Show password'}">${icon(state.showPassword ? 'eye-off' : 'eye')}</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="confirm-password">Confirm Password</label>
+          <div class="input-wrapper">
+            <span class="input-icon-left">${icon('lock-keyhole')}</span>
+            <input class="input has-icon-left" id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required placeholder="Re-enter your password" />
           </div>
         </div>
 
@@ -691,7 +913,7 @@ function renderAuthHtml() {
         </label>
 
         <button class="btn btn-primary btn-full" type="submit" ${state.busy === 'sign-up' ? 'disabled' : ''}>
-          ${state.busy === 'sign-up' ? 'Creating Account…' : `${icon('user-plus')} Create Account & Send OTP`}
+          ${state.busy === 'sign-up' ? 'Creating Account…' : `${icon('user-plus')} Create Account & Send Verification Email`}
         </button>
 
         <div style="text-align:center;margin-top:16px;font-size:13.5px;color:var(--ink-muted);">
@@ -710,7 +932,7 @@ function renderAuthHtml() {
           <label class="form-label" for="email">Account Email</label>
           <div class="input-wrapper">
             <span class="input-icon-left">${icon('mail')}</span>
-            <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" placeholder="vendor@business.ng" value="${escapeAttribute(state.pendingEmail || '')}" required />
+            <input class="input has-icon-left" id="email" name="email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="vendor@business.ng" value="${escapeAttribute(state.pendingEmail || '')}" required />
           </div>
         </div>
 
@@ -3793,6 +4015,16 @@ function requestErrorMessage(error, fallback = 'The request could not be complet
   return error.message || fallback;
 }
 
+function workspaceErrorMessage(error) {
+  if (error?.code === 'NETWORK_ERROR') {
+    return 'We could not reach the merchant service. Your account is still signed in; check your connection and try again.';
+  }
+  if (error?.status >= 500 || error?.code === 'REQUEST_FAILED' || error?.code === 'INVALID_RESPONSE') {
+    return 'The merchant service is temporarily unavailable. Your account is still signed in; please try again shortly.';
+  }
+  return requestErrorMessage(error, 'We could not load the merchant workspace. Try again, or sign out completely before using another account.');
+}
+
 let notificationChannel = null;
 let notificationPollInterval = null;
 
@@ -4024,7 +4256,7 @@ async function loadMerchantData() {
       await handleSessionExpired('Your session has expired. Please sign in again.');
       return;
     }
-    state.workspaceError = requestErrorMessage(error, 'The merchant workspace is temporarily unavailable. Check your connection and try again.');
+    state.workspaceError = workspaceErrorMessage(error);
   } finally {
     if (requestVersion === state.dataRequestVersion) {
       state.loading = false;
@@ -4042,15 +4274,16 @@ async function loadWorkspace() {
     return workspaceLoadingPromise;
   }
   const generation = workspaceGeneration;
+  const userId = state.session?.user?.id || null;
   workspaceLoadingPromise = (async () => {
     state.loading = true;
     state.workspaceError = '';
     render();
     try {
       const data = await api('/v1/vendor/me');
-      if (generation !== workspaceGeneration || !state.session) return;
-      state.merchants = data.merchants || [];
-      const savedId = window.localStorage.getItem('sfbf-vendor-merchant-id');
+      if (generation !== workspaceGeneration || !state.session || (state.session?.user?.id || null) !== userId) return;
+      state.merchants = Array.isArray(data?.merchants) ? data.merchants : [];
+      const savedId = readStoredValue('localStorage', 'sfbf-vendor-merchant-id');
       state.merchant = state.merchants.find((merchant) => merchant.id === savedId) || state.merchants[0] || null;
 
       if (!state.merchant) {
@@ -4069,7 +4302,7 @@ async function loadWorkspace() {
         await handleSessionExpired('Your session has expired. Please sign in again.');
         return;
       }
-      state.workspaceError = requestErrorMessage(error, 'The merchant workspace is temporarily unavailable. Check your connection and try again.');
+      state.workspaceError = workspaceErrorMessage(error);
       render();
     }
   })().finally(() => {
@@ -4212,7 +4445,7 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'toggle-collapse') {
     state.sidebarCollapsed = !state.sidebarCollapsed;
-    window.localStorage.setItem('sfbf-sidebar-collapsed', String(state.sidebarCollapsed));
+    writeStoredValue('localStorage', 'sfbf-sidebar-collapsed', String(state.sidebarCollapsed));
     render();
     return;
   }
@@ -4263,14 +4496,16 @@ document.addEventListener('click', async (event) => {
     state.busy = 'resend-otp';
     render();
     try {
+      const redirectTo = accountAccessUrl();
       const { error } = await state.client.auth.resend({
         type: 'signup',
         email: state.pendingEmail,
+        options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
       });
       if (error) throw new Error(error.message);
-      showNotice(`A fresh 6-digit OTP code was sent to ${state.pendingEmail}`);
+      showNotice(verificationNotice(state.pendingEmail, { resent: true }));
     } catch (e) {
-      showNotice(e.message || 'Could not resend OTP.', 'error');
+      showNotice(e.message || 'Could not resend the verification email.', 'error');
     } finally {
       state.busy = null;
       render();
@@ -5469,13 +5704,13 @@ document.addEventListener('submit', async (event) => {
 
   // Sign In Form (Password)
   if (form.id === 'sign-in-form') {
-    const email = form.elements.email?.value?.trim() || '';
+    const email = normalizeEmail(form.elements.email?.value);
     const password = form.elements.password?.value || '';
     state.pendingEmail = email;
     state.pendingPassword = password;
 
-    if (!email || !password) {
-      setInlineAuthError(form, 'Please provide both your work email and password.');
+    if (!isValidEmail(email) || !password) {
+      setInlineAuthError(form, 'Enter your registered work email and password.');
       return;
     }
 
@@ -5488,6 +5723,7 @@ document.addEventListener('submit', async (event) => {
     }
 
     try {
+      await prepareForCredentialSignIn(email);
       const { data, error } = await state.client.auth.signInWithPassword({ email, password });
       if (error || !data.session) throw new Error(error?.message || 'Authentication failed.');
       state.session = data.session;
@@ -5498,11 +5734,10 @@ document.addEventListener('submit', async (event) => {
       await loadWorkspace();
     } catch (err) {
       if (err.message && err.message.toLowerCase().includes('email not confirmed')) {
-        if (typeof window !== 'undefined' && window.sessionStorage) {
-          window.sessionStorage.setItem('sfbf-pending-email', state.pendingEmail);
-        }
-        state.authMode = 'verify-otp';
-        showNotice(`Please verify your email. A 6-digit code was sent to ${state.pendingEmail}.`);
+        persistPendingEmail(email);
+        state.pendingPassword = '';
+        state.authMode = verificationAuthMode();
+        showNotice(verificationNotice(email));
         render();
         return;
       }
@@ -5520,17 +5755,17 @@ document.addEventListener('submit', async (event) => {
 
   // 1-Time Signup OTP Verification Form
   if (form.id === 'verify-otp-form') {
-    const token = form.elements.otpCode?.value?.trim() || '';
-    const email = (form.elements.email?.value?.trim() || state.pendingEmail || '').trim();
-    state.pendingEmail = email;
+    const token = String(form.elements.otpCode?.value || '').replace(/\s/g, '');
+    const email = normalizeEmail(form.elements.email?.value || state.pendingEmail);
+    persistPendingEmail(email);
 
-    if (!email) {
-      setInlineAuthError(form, 'Please provide the email address associated with your account.');
+    if (!isValidEmail(email)) {
+      setInlineAuthError(form, 'Enter the email address associated with this merchant account.');
       return;
     }
 
-    if (!token || token.length < 6) {
-      setInlineAuthError(form, 'Please enter the 6-digit OTP code sent to your email.');
+    if (!new RegExp(`^\\d{${OTP_CODE_LENGTH}}$`).test(token)) {
+      setInlineAuthError(form, `Enter the ${OTP_CODE_LENGTH}-digit code from your verification email.`);
       return;
     }
 
@@ -5543,34 +5778,26 @@ document.addEventListener('submit', async (event) => {
     }
 
     try {
-      let res = await state.client.auth.verifyOtp({
+      const res = await state.client.auth.verifyOtp({
         email,
         token,
-        type: 'signup',
+        // Supabase uses the generic `email` verification type for numeric
+        // email OTPs, including an email/password signup confirmation.
+        type: 'email',
       });
-
-      if (res.error) {
-        res = await state.client.auth.verifyOtp({
-          email,
-          token,
-          type: 'email',
-        });
-      }
 
       if (res.error || !res.data?.session) {
         throw new Error(res.error?.message || 'Invalid or expired OTP code.');
       }
 
-      if (typeof window !== 'undefined' && window.sessionStorage) {
-        window.sessionStorage.removeItem('sfbf-pending-email');
-      }
+      removeStoredValue('sessionStorage', PENDING_EMAIL_STORAGE_KEY);
       state.session = res.data.session;
       state.workspaceError = '';
       state.authError = '';
       showNotice('Email verified! Opening your merchant workspace…');
       await loadWorkspace();
     } catch (err) {
-      setInlineAuthError(form, err.message || 'Verification failed. Check the 6-digit code.');
+      setInlineAuthError(form, err.message || `Verification failed. Check the ${OTP_CODE_LENGTH}-digit code or request a new one.`);
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.innerHTML = `${icon('check-circle')} Verify Code & Open Portal`;
@@ -5584,15 +5811,32 @@ document.addEventListener('submit', async (event) => {
 
   // Sign Up Form (Captures details and sends 1-time OTP)
   if (form.id === 'sign-up-form') {
-    const email = form.elements.email?.value?.trim() || '';
+    const email = normalizeEmail(form.elements.email?.value);
     const password = form.elements.password?.value || '';
+    const confirmPassword = form.elements.confirmPassword?.value || '';
     const fullName = form.elements.fullName?.value?.trim() || '';
     const businessName = form.elements.businessName?.value?.trim() || '';
     const phone = form.elements.phone?.value?.trim() || '';
     state.pendingEmail = email;
+    state.pendingPassword = password;
+    state.pendingFullName = fullName;
+    state.pendingBusinessName = businessName;
+    state.pendingPhone = phone;
 
-    if (!email || !password || !fullName || !businessName) {
+    if (!isValidEmail(email) || !fullName || !businessName || !phone) {
       setInlineAuthError(form, 'Please fill out all required registration fields.');
+      return;
+    }
+    if (password.length < 12) {
+      setInlineAuthError(form, 'Choose a password with at least 12 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setInlineAuthError(form, 'Your password confirmation does not match.');
+      return;
+    }
+    if (!form.elements.terms?.checked) {
+      setInlineAuthError(form, 'Accept the Merchant Agreement before creating an account.');
       return;
     }
 
@@ -5605,12 +5849,13 @@ document.addEventListener('submit', async (event) => {
     }
 
     try {
+      const redirectTo = accountAccessUrl();
       const { data, error } = await state.client.auth.signUp({
         email,
         password,
         options: {
           data: { full_name: fullName, business_name: businessName, phone },
-          emailRedirectTo: new URL('/account-access.html', window.location.origin).href,
+          ...(redirectTo ? { emailRedirectTo: redirectTo } : {}),
         },
       });
       if (error) throw new Error(error.message);
@@ -5622,18 +5867,17 @@ document.addEventListener('submit', async (event) => {
         showNotice('Merchant account created successfully!');
         await loadWorkspace();
       } else {
-        if (typeof window !== 'undefined' && window.sessionStorage) {
-          window.sessionStorage.setItem('sfbf-pending-email', state.pendingEmail);
-        }
-        state.authMode = 'verify-otp';
-        showNotice(`Verification code sent to ${state.pendingEmail}. Enter the 6-digit code below.`);
+        persistPendingEmail(email);
+        state.pendingPassword = '';
+        state.authMode = verificationAuthMode();
+        showNotice(verificationNotice(state.pendingEmail));
         render();
       }
     } catch (err) {
       setInlineAuthError(form, err.message || 'Registration failed.');
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.innerHTML = `${icon('user-plus')} Create Account & Send OTP`;
+        submitBtn.innerHTML = `${icon('user-plus')} Create Account & Send Verification Email`;
         hydrateIcons();
       }
     } finally {
@@ -5644,10 +5888,10 @@ document.addEventListener('submit', async (event) => {
 
   // Password Recovery Form
   if (form.id === 'recover-form') {
-    const email = form.elements.email?.value?.trim() || '';
+    const email = normalizeEmail(form.elements.email?.value);
     state.pendingEmail = email;
-    if (!email) {
-      setInlineAuthError(form, 'Please enter your account email.');
+    if (!isValidEmail(email)) {
+      setInlineAuthError(form, 'Enter the email address for this account.');
       return;
     }
 
@@ -5660,7 +5904,8 @@ document.addEventListener('submit', async (event) => {
     }
 
     try {
-      const { error } = await state.client.auth.resetPasswordForEmail(email, { redirectTo: new URL('/account-access.html', window.location.origin).href });
+      const redirectTo = accountAccessUrl();
+      const { error } = await state.client.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : {});
       if (error) throw new Error(error.message);
       showNotice('Password reset link sent to your email!');
       state.authMode = 'signin';
@@ -5720,6 +5965,17 @@ document.addEventListener('submit', async (event) => {
       await loadMerchantData();
       showNotice('Workspace created. Upload your documents in the secure verification step.');
     } catch (error) {
+      // The first request may have completed just before its response was
+      // interrupted. A subsequent submit then correctly reports an existing
+      // membership; reconcile it instead of trapping the owner in setup.
+      if (error?.code === 'MERCHANT_ALREADY_EXISTS') {
+        await loadWorkspace();
+        if (state.merchant) {
+          state.formError = '';
+          showNotice('Your existing merchant workspace is ready.');
+          return;
+        }
+      }
       state.formError = requestErrorMessage(error, 'Verification could not be submitted.');
       showNotice(state.formError, 'error');
     } finally {
@@ -6334,7 +6590,7 @@ function resumeSession() {
     try {
       const session = await getValidSession();
       if (!session) await handleSessionExpired();
-      else if (state.workspaceError || !state.merchant) await loadWorkspace();
+      else if (state.workspaceError || (!state.merchant && state.authMode !== 'onboarding')) await loadWorkspace();
     } catch (error) {
       if (isAuthError(error)) await handleSessionExpired();
     }
@@ -6372,33 +6628,20 @@ async function boot() {
       const prevSession = state.session;
       state.session = nextSession;
       if (!nextSession && prevSession) {
-        state.dataRequestVersion++;
-        workspaceGeneration++;
-        workspaceLoadingPromise = null;
-        state.dataAbortController?.abort();
-        state.merchants = [];
-        state.merchant = null;
-        state.overview = null;
-        state.products = [];
-        state.orders = [];
-        state.returns = [];
-        state.team = [];
-        state.categories = [];
-        state.modal = null;
-        state.profileDraft = null;
-        state.verificationData = null;
-        state.notifications = [];
-        state.unreadNotificationsCount = 0;
-        state.notificationsOpen = false;
-        teardownNotificationsSync();
-        state.workspaceError = '';
-        state.loading = false;
-        state.authMode = 'signin';
+        resetWorkspaceState({ clearAuthDraft: true });
         render();
       } else if (nextSession && !prevSession && event !== 'INITIAL_SESSION') {
         // Never call auth APIs while Supabase holds its auth callback lock.
+        const expectedUserId = nextSession.user?.id || null;
         setTimeout(() => {
-          if (state.session && !state.merchant) void loadWorkspace();
+          if (
+            state.session &&
+            (state.session.user?.id || null) === expectedUserId &&
+            !state.merchant &&
+            !state.loading &&
+            !state.workspaceError &&
+            state.authMode !== 'onboarding'
+          ) void loadWorkspace();
         }, 0);
       }
     });
@@ -6416,7 +6659,7 @@ async function boot() {
     if (isAuthError(error)) {
       await handleSessionExpired('Your session has expired. Please sign in again.');
     } else {
-      state.workspaceError = requestErrorMessage(error, 'The portal could not initialize its live services.');
+      state.workspaceError = workspaceErrorMessage(error);
       state.loading = false;
       render();
     }

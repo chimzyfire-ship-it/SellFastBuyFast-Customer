@@ -5,11 +5,6 @@ const NavigationContext = createContext();
 
 // Protected Routes requiring Auth Guard
 const PROTECTED_ROUTES = [
-  'account',
-  'account-addresses',
-  'account-notifications',
-  'account-privacy',
-  'saved',
   'checkout-address',
   'checkout-delivery',
   'checkout-review',
@@ -17,17 +12,27 @@ const PROTECTED_ROUTES = [
   'checkout-processing',
   'checkout-confirmation',
   'checkout-failed',
-  'orders',
-  'order-detail',
-  'order-tracking',
   'order-cancel',
   'order-return',
   'return-status',
-  'create-ticket',
-  'support-ticket',
   'create-dispute',
   'refund-status',
 ];
+
+// Expo previews intentionally keep their demo checkout and concierge paths
+// together, while live Paystack keeps the authenticated routes protected.
+const DEMO_GUEST_ROUTES = new Set([
+  'checkout-address',
+  'checkout-delivery',
+  'checkout-review',
+  'checkout-paystack',
+  'checkout-processing',
+  'checkout-confirmation',
+  'checkout-failed',
+  'create-ticket',
+  'support-ticket',
+]);
+const isCheckoutDemo = process.env.EXPO_PUBLIC_PAYMENT_MODE !== 'paystack';
 
 export const NavigationProvider = ({ children }) => {
   const { isAuthenticated, setIntendedRoute, showToast } = useApp();
@@ -44,7 +49,8 @@ export const NavigationProvider = ({ children }) => {
 
   const navigate = (routeName, params = {}) => {
     // Check auth guard for protected routes
-    if (PROTECTED_ROUTES.includes(routeName) && !isAuthenticated) {
+    const allowsGuestDemoRoute = isCheckoutDemo && DEMO_GUEST_ROUTES.has(routeName);
+    if (PROTECTED_ROUTES.includes(routeName) && !isAuthenticated && !allowsGuestDemoRoute) {
       setIntendedRoute({ name: routeName, params });
       showToast('Please sign in to continue');
       setRouteHistory((prev) => [...prev, { name: 'auth-signin', params: { returnTo: routeName } }]);
@@ -54,9 +60,9 @@ export const NavigationProvider = ({ children }) => {
 
     // Tab synchronization
     if (routeName === 'home') setActiveTab('home');
-    else if (routeName === 'search') setActiveTab('search');
-    else if (routeName === 'bag') setActiveTab('cart');
-    else if (routeName === 'orders') setActiveTab('orders');
+    else if (routeName === 'category' || routeName === 'categories') setActiveTab('categories');
+    else if (routeName === 'bag' || routeName === 'cart') setActiveTab('cart');
+    else if (routeName === 'saved' || routeName === 'wishlist' || routeName === 'account-saved') setActiveTab('wishlist');
     else if (routeName === 'account') setActiveTab('account');
 
     setRouteHistory((prev) => [...prev, { name: routeName, params }]);
@@ -71,8 +77,12 @@ export const NavigationProvider = ({ children }) => {
       setRouteHistory(newHistory);
       setCurrentRoute(previous);
 
-      if (['home', 'search', 'bag', 'orders', 'account'].includes(previous.name)) {
-        setActiveTab(previous.name === 'bag' ? 'cart' : previous.name);
+      if (['home', 'category', 'categories', 'bag', 'saved', 'wishlist', 'account-saved', 'account'].includes(previous.name)) {
+        if (previous.name === 'category' || previous.name === 'categories') setActiveTab('categories');
+        else if (previous.name === 'bag') setActiveTab('cart');
+        else if (previous.name === 'saved' || previous.name === 'wishlist' || previous.name === 'account-saved') setActiveTab('wishlist');
+        else if (previous.name === 'account') setActiveTab('account');
+        else setActiveTab(previous.name);
       }
     } else {
       setCurrentRoute({ name: 'home', params: {} });
@@ -83,8 +93,11 @@ export const NavigationProvider = ({ children }) => {
   const reset = (routeName, params = {}) => {
     setRouteHistory([{ name: routeName, params }]);
     setCurrentRoute({ name: routeName, params });
-    if (['home', 'search', 'bag', 'orders', 'account'].includes(routeName)) {
-      setActiveTab(routeName === 'bag' ? 'cart' : routeName);
+    if (['home', 'category', 'categories', 'bag', 'saved', 'wishlist', 'account'].includes(routeName)) {
+      if (routeName === 'category' || routeName === 'categories') setActiveTab('categories');
+      else if (routeName === 'bag') setActiveTab('cart');
+      else if (routeName === 'saved' || routeName === 'wishlist') setActiveTab('wishlist');
+      else setActiveTab(routeName);
     }
   };
 
@@ -99,9 +112,9 @@ export const NavigationProvider = ({ children }) => {
   const selectTab = (tabId) => {
     setActiveTab(tabId);
     if (tabId === 'home') navigate('home');
-    else if (tabId === 'search') navigate('search');
+    else if (tabId === 'categories') navigate('category');
     else if (tabId === 'cart') navigate('bag');
-    else if (tabId === 'orders') navigate('orders');
+    else if (tabId === 'wishlist') navigate('saved');
     else if (tabId === 'account') navigate('account');
   };
 
